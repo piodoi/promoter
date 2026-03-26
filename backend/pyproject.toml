@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "promoter-backend"
+version = "0.1.0"
+description = "Compliant marketing assistant backend"
+authors = ["ProManage"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+python-dotenv = "^1.0.0"
+pydantic = "^2.5.0"
+httpx = "^0.26.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

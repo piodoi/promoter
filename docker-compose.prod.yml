@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  backend:
+    restart: always
+
+  frontend:
+    restart: always
+    build:
+      args:
+        - VITE_API_URL=${PRODUCTION_API_URL}
