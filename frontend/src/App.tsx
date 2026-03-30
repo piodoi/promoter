@@ -10,7 +10,9 @@ type PlannerInputs = {
   groundWidth: number;
   groundLength: number;
   includeLoft: boolean;
+  includeBalcony: boolean;
   includeSideWall: boolean;
+  includeConcreteSlab: boolean;
   minimumLoftHeadroom: number;
   availableWoodWidth: number;
   availableWoodDepth: number;
@@ -43,6 +45,8 @@ type PlannerMetrics = {
   sideWallHeight: number;
   loftFloorHeight: number;
   rafterSpacing: number;
+  anchorSpacingX: number;
+  anchorSpacingY: number;
   glazingRatio: number;
   roofRise: number;
   rafterLength: number;
@@ -51,6 +55,8 @@ type PlannerMetrics = {
   actualSpacing: number;
   loftDeckWidth: number;
   loftUsableWidth: number;
+  loftDeckLength: number;
+  balconyMargin: number;
   loftArea: number;
   roofSurfaceArea: number;
   sideWallArea: number;
@@ -65,7 +71,7 @@ type PlannerMetrics = {
   recommendedSection: SectionRule;
   availableSectionAdequate: boolean;
   stockLengthAdequate: boolean;
-  anchorPositions: number[];
+  anchorPoints: { x: number; y: number }[];
 };
 
 type DeferredNumberFieldProps = {
@@ -125,7 +131,9 @@ const defaultInputs: PlannerInputs = {
   groundWidth: 8,
   groundLength: 9,
   includeLoft: true,
+  includeBalcony: false,
   includeSideWall: false,
+  includeConcreteSlab: false,
   minimumLoftHeadroom: 1.4,
   availableWoodWidth: 0.045,
   availableWoodDepth: 0.195,
@@ -228,6 +236,40 @@ function stockLengthAdequateText(stockLengthAdequate: boolean) {
   return stockLengthAdequate ? 'Full-length rafters possible' : 'Splice or laminated members required';
 }
 
+function buildGridAxis(totalLength: number, minSpacing: number, maxSpacing: number) {
+  const safeLength = Math.max(totalLength, 0);
+  const safeMin = Math.max(minSpacing, 0.25);
+  const safeMax = Math.max(maxSpacing, safeMin);
+
+  if (safeLength <= safeMax) {
+    return { positions: [0, round(safeLength, 2)], spacing: safeLength };
+  }
+
+  const minIntervals = Math.max(1, Math.ceil(safeLength / safeMax));
+  const maxIntervals = Math.max(minIntervals, Math.floor(safeLength / safeMin));
+
+  let bestIntervalCount = minIntervals;
+  let bestSpacing = safeLength / minIntervals;
+  let bestScore = Number.POSITIVE_INFINITY;
+  const targetSpacing = (safeMin + safeMax) / 2;
+
+  for (let intervalCount = minIntervals; intervalCount <= maxIntervals; intervalCount += 1) {
+    const spacing = safeLength / intervalCount;
+    if (spacing < safeMin || spacing > safeMax) {
+      continue;
+    }
+    const score = Math.abs(spacing - targetSpacing);
+    if (score < bestScore) {
+      bestScore = score;
+      bestSpacing = spacing;
+      bestIntervalCount = intervalCount;
+    }
+  }
+
+  const positions = Array.from({ length: bestIntervalCount + 1 }, (_, index) => round((safeLength / bestIntervalCount) * index, 2));
+  return { positions, spacing: round(bestSpacing, 2) };
+}
+
 function downloadFile(content: string, fileName: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -296,6 +338,8 @@ function buildDxf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: Un
   const cabinLength = displayLength(inputs.groundLength);
   const cabinWidth = displayLength(inputs.groundWidth);
   const loftWidth = displayLength(metrics.loftUsableWidth);
+  const loftLength = displayLength(metrics.loftDeckLength);
+  const loftStartY = displayLength(metrics.balconyMargin);
   const anchorRadius = unitSystem === 'metric' ? 0.08 : 0.25;
   const planOffset = cabinWidth + (unitSystem === 'metric' ? 2 : 6);
   const anchorOffsetY = Math.max(cabinLength, 1) + (unitSystem === 'metric' ? 3 : 10);
@@ -305,15 +349,15 @@ function buildDxf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: Un
     ...createDxfRect(0, 0, cabinWidth, cabinLength, 'GROUND_PLAN'),
     ...createDxfText(planOffset, -0.8, textHeight, 'LOFT PLAN', 'TEXT'),
     ...createDxfRect(planOffset, 0, cabinWidth, cabinLength, 'LOFT_PLAN'),
-    ...(metrics.loftArea > 0 ? createDxfRect(planOffset + ((cabinWidth - loftWidth) / 2), 0, loftWidth, cabinLength, 'LOFT_USABLE') : []),
+    ...(metrics.loftArea > 0 ? createDxfRect(planOffset + ((cabinWidth - loftWidth) / 2), loftStartY, loftWidth, loftLength, 'LOFT_USABLE') : []),
     ...createDxfText(0, anchorOffsetY - 0.8, textHeight, 'ANCHOR LAYOUT', 'TEXT'),
     ...createDxfRect(0, anchorOffsetY, cabinWidth, cabinLength, 'ANCHORS'),
   ];
 
-  metrics.anchorPositions.forEach((position) => {
-    const y = displayLength(position);
-    entities.push(...createDxfCircle(0, anchorOffsetY + y, anchorRadius, 'ANCHORS'));
-    entities.push(...createDxfCircle(cabinWidth, anchorOffsetY + y, anchorRadius, 'ANCHORS'));
+  metrics.anchorPoints.forEach((anchorPoint) => {
+    const x = displayLength(anchorPoint.x);
+    const y = displayLength(anchorPoint.y);
+    entities.push(...createDxfCircle(x, anchorOffsetY + y, anchorRadius, 'ANCHORS'));
   });
 
   return [
@@ -330,7 +374,7 @@ function buildDxf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: Un
   ].join('\n');
 }
 
-function addPdfPlan(doc: jsPDF, title: string, x: number, y: number, width: number, length: number, innerWidth: number, unitSystem: UnitSystem) {
+function addPdfPlan(doc: jsPDF, title: string, x: number, y: number, width: number, length: number, innerWidth: number, innerLength: number, innerOffsetY: number, unitSystem: UnitSystem) {
   const boxWidth = 70;
   const boxHeight = 42;
   const scale = Math.min(boxWidth / Math.max(width, 1), boxHeight / Math.max(length, 1));
@@ -344,11 +388,13 @@ function addPdfPlan(doc: jsPDF, title: string, x: number, y: number, width: numb
   doc.setDrawColor(71, 54, 39);
   doc.rect(originX, originY, drawWidth, drawHeight);
 
-  if (innerWidth > 0) {
+  if (innerWidth > 0 && innerLength > 0) {
     const innerDrawWidth = innerWidth * scale;
+    const innerDrawLength = innerLength * scale;
     const innerX = originX + ((drawWidth - innerDrawWidth) / 2);
+    const innerY = originY + (innerOffsetY * scale);
     doc.setDrawColor(31, 95, 117);
-    doc.rect(innerX, originY, innerDrawWidth, drawHeight);
+    doc.rect(innerX, innerY, innerDrawWidth, innerDrawLength);
   }
 
   doc.setFontSize(9);
@@ -356,7 +402,7 @@ function addPdfPlan(doc: jsPDF, title: string, x: number, y: number, width: numb
   doc.text(`Length ${formatLength(length, unitSystem)}`, x, y + 62);
 }
 
-function addPdfAnchorPlan(doc: jsPDF, x: number, y: number, width: number, length: number, anchorPositions: number[], unitSystem: UnitSystem) {
+function addPdfAnchorPlan(doc: jsPDF, x: number, y: number, width: number, length: number, anchorPoints: { x: number; y: number }[], anchorSpacingX: number, anchorSpacingY: number, unitSystem: UnitSystem) {
   const boxWidth = 70;
   const boxHeight = 42;
   const scale = Math.min(boxWidth / Math.max(width, 1), boxHeight / Math.max(length, 1));
@@ -370,15 +416,14 @@ function addPdfAnchorPlan(doc: jsPDF, x: number, y: number, width: number, lengt
   doc.setDrawColor(71, 54, 39);
   doc.rect(originX, originY, drawWidth, drawHeight);
   doc.setFillColor(31, 95, 117);
-  anchorPositions.forEach((position) => {
-    const ratio = length > 0 ? position / length : 0;
-    const pointY = originY + (ratio * drawHeight);
-    doc.circle(originX, pointY, 1, 'F');
-    doc.circle(originX + drawWidth, pointY, 1, 'F');
+  anchorPoints.forEach((anchorPoint) => {
+    const pointX = originX + ((width > 0 ? anchorPoint.x / width : 0) * drawWidth);
+    const pointY = originY + ((length > 0 ? anchorPoint.y / length : 0) * drawHeight);
+    doc.circle(pointX, pointY, 1, 'F');
   });
   doc.setFontSize(9);
-  doc.text(`${anchorPositions.length * 2} anchors total`, x, y + 56);
-  doc.text(`Nominal spacing ${formatLength(anchorPositions[1] ?? 0, unitSystem)}`, x, y + 62);
+  doc.text(`${anchorPoints.length} anchors total`, x, y + 56);
+  doc.text(`Grid ${formatLength(anchorSpacingX, unitSystem)} x ${formatLength(anchorSpacingY, unitSystem)}`, x, y + 62);
 }
 
 function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: UnitSystem) {
@@ -428,9 +473,9 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
   });
 
   y += 20;
-  addPdfPlan(doc, 'Ground floor', 14, y, inputs.groundWidth, inputs.groundLength, 0, unitSystem);
-  addPdfPlan(doc, 'Loft plan', 105, y, inputs.groundWidth, inputs.groundLength, metrics.loftUsableWidth, unitSystem);
-  addPdfAnchorPlan(doc, 14, y + 78, inputs.groundWidth, inputs.groundLength, metrics.anchorPositions, unitSystem);
+  addPdfPlan(doc, 'Ground floor', 14, y, inputs.groundWidth, inputs.groundLength, 0, 0, 0, unitSystem);
+  addPdfPlan(doc, 'Loft plan', 105, y, inputs.groundWidth, inputs.groundLength, metrics.loftUsableWidth, metrics.loftDeckLength, metrics.balconyMargin, unitSystem);
+  addPdfAnchorPlan(doc, 14, y + 78, inputs.groundWidth, inputs.groundLength, metrics.anchorPoints, metrics.anchorSpacingX, metrics.anchorSpacingY, unitSystem);
   doc.setFontSize(9);
   doc.text(`Rafter spacing ${formatLength(metrics.actualSpacing, unitSystem)} | Roof pitch ${formatValue(metrics.roofPitch, 1)} deg`, 105, y + 134);
   doc.text(`Facade glazing ${formatValue(metrics.glazingRatio * 100, 0)}%`, 105, y + 140);
@@ -549,10 +594,10 @@ function polygonPoints(points: ProjectedPoint[]) {
   return points.map((point) => `${point.x},${point.y}`).join(' ');
 }
 
-function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLength, glazingRatio }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingRatio: number }) {
+function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLength, glazingRatio, loftFloorHeight, loftDeckWidth, loftDeckLength, balconyMargin, includeLoft }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingRatio: number; loftFloorHeight: number; loftDeckWidth: number; loftDeckLength: number; balconyMargin: number; includeLoft: boolean }) {
   const defaultYaw = -0.72;
   const defaultPitch = 0.28;
-  const defaultZoom = 0.24;
+  const defaultZoom = 1;
   const [yaw, setYaw] = useState(defaultYaw);
   const [pitch, setPitch] = useState(defaultPitch);
   const [zoom, setZoom] = useState(defaultZoom);
@@ -571,10 +616,13 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
   const frontRightKnee = { x: halfWidth, y: sideWallHeight, z: -halfLength };
   const backLeftKnee = { x: -halfWidth, y: sideWallHeight, z: halfLength };
   const backRightKnee = { x: halfWidth, y: sideWallHeight, z: halfLength };
-  const glazingInsetX = halfWidth * clamp(0.22 + glazingRatio * 0.25, 0.16, 0.35);
-  const glazingInsetY = totalHeight * 0.14;
+  const loftHalfWidth = Math.max(loftDeckWidth / 2, 0.08);
+  const loftFrontZ = -halfLength + balconyMargin;
+  const loftRearZ = halfLength - balconyMargin;
+  const glazingInsetX = halfWidth * clamp(0.54 - (glazingRatio * 1.05), 0.08, 0.46);
+  const glazingInsetY = totalHeight * clamp(0.48 - (glazingRatio * 0.55), 0.08, 0.32);
   const fitScale = clamp(1.6 / Math.max(width, cabinLength, totalHeight, 2.8), 0.16, 0.5);
-  const sceneScale = fitScale * zoom;
+  const sceneScale = fitScale * zoom * 0.12;
 
   const faces = [
     {
@@ -611,6 +659,32 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
     { x: halfWidth - glazingInsetX, y: 0.2, z: -halfLength + 0.01 },
   ].map((point) => scaleProjectedPoint(projectPoint(point, yaw, pitch), sceneScale));
 
+  const loftPolygon = includeLoft && loftDeckWidth > 0 && loftDeckLength > 0.2
+    ? [
+      { x: -loftHalfWidth, y: loftFloorHeight, z: loftFrontZ },
+      { x: loftHalfWidth, y: loftFloorHeight, z: loftFrontZ },
+      { x: loftHalfWidth, y: loftFloorHeight, z: loftRearZ },
+      { x: -loftHalfWidth, y: loftFloorHeight, z: loftRearZ },
+    ].map((point) => scaleProjectedPoint(projectPoint(point, yaw, pitch), sceneScale))
+    : null;
+
+  const loftEdgeLines = includeLoft && loftDeckWidth > 0 && loftDeckLength > 0.2
+    ? [
+      [
+        { x: -loftHalfWidth, y: loftFloorHeight, z: loftFrontZ },
+        { x: -loftHalfWidth, y: 0, z: loftFrontZ },
+      ],
+      [
+        { x: loftHalfWidth, y: loftFloorHeight, z: loftFrontZ },
+        { x: loftHalfWidth, y: 0, z: loftFrontZ },
+      ],
+      [
+        { x: -loftHalfWidth, y: loftFloorHeight, z: loftRearZ },
+        { x: loftHalfWidth, y: loftFloorHeight, z: loftRearZ },
+      ],
+    ].map((line) => line.map((point) => scaleProjectedPoint(projectPoint(point, yaw, pitch), sceneScale)))
+    : [];
+
   function handlePointerDown(event: React.PointerEvent<SVGSVGElement>) {
     event.currentTarget.setPointerCapture(event.pointerId);
     setDragState({ active: true, lastX: event.clientX, lastY: event.clientY });
@@ -633,7 +707,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
   }
 
   function stepZoom(delta: number) {
-    setZoom((current) => clamp(current + delta, 0.12, 1.6));
+    setZoom((current) => clamp(current + delta, 0.25, 6));
   }
 
   return (
@@ -641,10 +715,10 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
       <div className="preview-header-actions">
         <span className="panel-note">Drag to orbit. Use the buttons to zoom in and out.</span>
         <div className="preview-button-group">
-          <button type="button" className="ghost-button" onClick={() => stepZoom(-0.12)} aria-label="Zoom out preview">
+          <button type="button" className="ghost-button" onClick={() => stepZoom(-0.25)} aria-label="Zoom out preview">
             -
           </button>
-          <button type="button" className="ghost-button" onClick={() => stepZoom(0.12)} aria-label="Zoom in preview">
+          <button type="button" className="ghost-button" onClick={() => stepZoom(0.25)} aria-label="Zoom in preview">
             +
           </button>
           <button type="button" className="ghost-button" onClick={() => { setYaw(defaultYaw); setPitch(defaultPitch); setZoom(defaultZoom); }}>
@@ -666,6 +740,19 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
         {faces.map((face, index) => (
           <polygon key={`${face.fill}-${index}`} points={polygonPoints(face.projected)} fill={face.fill} stroke={face.stroke} strokeWidth="2.4" />
         ))}
+        {loftPolygon ? <polygon points={polygonPoints(loftPolygon)} fill="rgba(241, 214, 161, 0.82)" stroke="#7f5d3b" strokeWidth="2" /> : null}
+        {loftEdgeLines.map((line, index) => (
+          <line
+            key={`loft-line-${index}`}
+            x1={line[0].x}
+            y1={line[0].y}
+            x2={line[1].x}
+            y2={line[1].y}
+            stroke="#7f5d3b"
+            strokeWidth="1.8"
+            strokeDasharray={index < 2 ? '4 5' : undefined}
+          />
+        ))}
         <polygon points={polygonPoints(glazingPolygon)} fill="rgba(124, 196, 216, 0.68)" stroke="#1f5f75" strokeWidth="2" />
         <text x="20" y="284">Width {formatValue(width, 2)}</text>
         <text x="156" y="284">Length {formatValue(cabinLength, 2)}</text>
@@ -677,7 +764,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
   );
 }
 
-function FloorPlan({ title, areaLabel, width, length, loftWidth, unit }: { title: string; areaLabel: string; width: number; length: number; loftWidth: number; unit: UnitSystem }) {
+function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, loftOffsetY, unit }: { title: string; areaLabel: string; width: number; length: number; loftWidth: number; loftLength: number; loftOffsetY: number; unit: UnitSystem }) {
   const outerX = 24;
   const outerY = 30;
   const outerWidth = 312;
@@ -685,6 +772,9 @@ function FloorPlan({ title, areaLabel, width, length, loftWidth, unit }: { title
   const loftRatio = width > 0 ? loftWidth / width : 0;
   const loftVisualWidth = outerWidth * clamp(loftRatio, 0, 1);
   const loftX = outerX + ((outerWidth - loftVisualWidth) / 2);
+  const loftLengthRatio = length > 0 ? loftLength / length : 0;
+  const loftVisualLength = outerHeight * clamp(loftLengthRatio, 0, 1);
+  const loftY = outerY + ((length > 0 ? loftOffsetY / length : 0) * outerHeight);
 
   return (
     <div className="visual-card">
@@ -694,7 +784,7 @@ function FloorPlan({ title, areaLabel, width, length, loftWidth, unit }: { title
       </div>
       <svg viewBox="0 0 360 230" className="plan-canvas" role="img" aria-label={`${title} floor plan`}>
         <rect x={outerX} y={outerY} width={outerWidth} height={outerHeight} rx="16" fill="#f6ede1" stroke="#6f5134" strokeWidth="3" />
-        {loftWidth > 0 ? <rect x={loftX} y={outerY + 16} width={loftVisualWidth} height={outerHeight - 32} rx="10" fill="#cbb18f" fillOpacity="0.82" stroke="#7f5d3b" strokeDasharray="6 6" /> : null}
+        {loftWidth > 0 && loftLength > 0 ? <rect x={loftX} y={loftY} width={loftVisualWidth} height={loftVisualLength} rx="10" fill="#cbb18f" fillOpacity="0.82" stroke="#7f5d3b" strokeDasharray="6 6" /> : null}
         <line x1={outerX} y1={outerY + outerHeight + 14} x2={outerX + outerWidth} y2={outerY + outerHeight + 14} stroke="#4f6570" strokeWidth="2" />
         <line x1={outerX - 14} y1={outerY} x2={outerX - 14} y2={outerY + outerHeight} stroke="#4f6570" strokeWidth="2" />
         <text x="180" y="222" textAnchor="middle">Length {formatLength(length, unit)}</text>
@@ -704,28 +794,27 @@ function FloorPlan({ title, areaLabel, width, length, loftWidth, unit }: { title
   );
 }
 
-function AnchorPlan({ length, width, anchorPositions, unit }: { length: number; width: number; anchorPositions: number[]; unit: UnitSystem }) {
+function AnchorPlan({ length, width, anchorPoints, anchorSpacingX, anchorSpacingY, unit }: { length: number; width: number; anchorPoints: { x: number; y: number }[]; anchorSpacingX: number; anchorSpacingY: number; unit: UnitSystem }) {
   return (
     <div className="visual-card">
       <div className="visual-header">
         <h3>Ground anchor layout</h3>
-        <span>{anchorPositions.length * 2} anchors</span>
+        <span>{anchorPoints.length} anchors</span>
       </div>
       <svg viewBox="0 0 360 230" className="plan-canvas" role="img" aria-label="Ground anchor layout">
         <rect x="34" y="44" width="292" height="142" rx="14" fill="#f3eadf" stroke="#5c4430" strokeWidth="3" />
-        {anchorPositions.map((position, index) => {
-          const ratio = length > 0 ? position / length : 0;
-          const y = 44 + (ratio * 142);
+        {anchorPoints.map((anchorPoint, index) => {
+          const x = 34 + ((length > 0 ? anchorPoint.y / length : 0) * 292);
+          const y = 44 + ((width > 0 ? anchorPoint.x / width : 0) * 142);
           return (
-            <g key={`${position}-${index}`}>
-              <circle cx="34" cy={y} r="6.5" fill="#1f5f75" />
-              <circle cx="326" cy={y} r="6.5" fill="#1f5f75" />
-              <line x1="34" y1={y} x2="326" y2={y} stroke="#5b7f8d" strokeDasharray="4 8" opacity="0.55" />
+            <g key={`${anchorPoint.x}-${anchorPoint.y}-${index}`}>
+              <circle cx={x} cy={y} r="5.3" fill="#1f5f75" />
             </g>
           );
         })}
         <text x="180" y="218" textAnchor="middle">Length {formatLength(length, unit)}</text>
         <text x="20" y="118" transform="rotate(-90 20 118)" textAnchor="middle">Width {formatLength(width, unit)}</text>
+        <text x="326" y="30" textAnchor="end">Grid {formatLength(anchorSpacingY, unit)} x {formatLength(anchorSpacingX, unit)}</text>
       </svg>
     </div>
   );
@@ -754,6 +843,8 @@ export default function App() {
     : Math.max(recommendedSideWallHeight + (inputs.groundWidth * 0.72), 3);
   const recommendedSpacing = inputs.groundWidth > 8.5 ? 0.5 : 0.6;
   const recommendedGlazingRatio = inputs.includeLoft ? 0.34 : 0.28;
+  const anchorSpacingMin = inputs.includeConcreteSlab ? 1.5 : 1;
+  const anchorSpacingMax = inputs.includeConcreteSlab ? 2.5 : 1.5;
 
   const totalHeight = scaleFromRecommendation(recommendedTotalHeight, sliderOffsets.totalHeight, inputs.includeLoft ? inputs.minimumLoftHeadroom + 1.4 : 2.6, 12);
   const sideWallHeight = inputs.includeSideWall
@@ -765,6 +856,7 @@ export default function App() {
     : 0;
   const rafterSpacing = scaleFromRecommendation(recommendedSpacing, sliderOffsets.rafterSpacing, 0.3, 1);
   const glazingRatio = scaleFromRecommendation(recommendedGlazingRatio, sliderOffsets.glazingRatio, 0, 0.85);
+  const balconyMargin = inputs.includeLoft && inputs.includeBalcony ? clamp(inputs.groundLength * 0.14, 0.6, Math.max(inputs.groundLength * 0.22, 0.6)) : 0;
 
   const roofRise = Math.max(totalHeight - sideWallHeight, 0.6);
   const halfSpan = inputs.groundWidth / 2;
@@ -781,7 +873,8 @@ export default function App() {
       ? inputs.groundWidth
       : inputs.groundWidth * clamp(1 - (((loftFloorHeight + inputs.minimumLoftHeadroom) - sideWallHeight) / roofRise), 0, 1))
     : 0;
-  const loftArea = loftUsableWidth * inputs.groundLength;
+  const loftDeckLength = inputs.includeLoft ? Math.max(inputs.groundLength - (balconyMargin * 2), 0.6) : 0;
+  const loftArea = loftUsableWidth * loftDeckLength;
   const roofSurfaceArea = 2 * rafterLength * inputs.groundLength;
   const sideWallArea = 2 * inputs.groundLength * sideWallHeight;
   const endWallArea = ((inputs.groundWidth * sideWallHeight) + (0.5 * inputs.groundWidth * roofRise)) * 2;
@@ -796,22 +889,27 @@ export default function App() {
   const stockLengthAdequate = inputs.availableWoodLength >= rafterLength;
 
   const rafterVolume = frameCount * 2 * rafterLength * availableSectionArea;
-  const floorJoistVolume = frameCount * inputs.groundWidth * availableSectionArea;
-  const perimeterBeamVolume = ((inputs.groundLength * 2) + (inputs.groundWidth * 2)) * availableSectionArea;
+  const floorAxisGrid = buildGridAxis(inputs.groundLength, anchorSpacingMin, anchorSpacingMax);
+  const widthAxisGrid = buildGridAxis(inputs.groundWidth, anchorSpacingMin, anchorSpacingMax);
+  const floorAxis = floorAxisGrid.positions;
+  const widthAxis = widthAxisGrid.positions;
+  const anchorPoints = floorAxis.flatMap((y) => widthAxis.map((x) => ({ x, y })));
+  const floorJoistVolume = inputs.includeConcreteSlab ? 0 : floorAxis.length * inputs.groundWidth * availableSectionArea;
+  const perimeterBeamVolume = inputs.includeConcreteSlab ? 0 : ((inputs.groundLength * 2) + (inputs.groundWidth * 2)) * availableSectionArea;
   const totalWoodVolume = rafterVolume + floorJoistVolume + perimeterBeamVolume;
 
   const woodCostEstimate = totalWoodVolume * inputs.woodCostPerCubic;
   const panelCostEstimate = panelArea * inputs.panelCostPerSquare;
   const glassCostEstimate = glassArea * inputs.glassCostPerSquare;
   const shellCostEstimate = woodCostEstimate + panelCostEstimate + glassCostEstimate;
-  const anchorPositions = Array.from({ length: frameCount }, (_, index) => round(index * actualSpacing, 2));
-
   const metrics: PlannerMetrics = {
     groundArea,
     totalHeight,
     sideWallHeight,
     loftFloorHeight,
     rafterSpacing,
+    anchorSpacingX: widthAxisGrid.spacing,
+    anchorSpacingY: floorAxisGrid.spacing,
     glazingRatio,
     roofRise,
     rafterLength,
@@ -820,6 +918,8 @@ export default function App() {
     actualSpacing,
     loftDeckWidth,
     loftUsableWidth,
+    loftDeckLength,
+    balconyMargin,
     loftArea,
     roofSurfaceArea,
     sideWallArea,
@@ -834,7 +934,7 @@ export default function App() {
     recommendedSection,
     availableSectionAdequate,
     stockLengthAdequate,
-    anchorPositions,
+    anchorPoints,
   };
 
   function handleExportPdf() {
@@ -943,6 +1043,14 @@ export default function App() {
               <label className="checkbox-row-lite">
                 <input type="checkbox" checked={inputs.includeSideWall} onChange={(event) => setInputs({ ...inputs, includeSideWall: event.target.checked })} />
                 <span>Include side wall</span>
+              </label>
+              <label className="checkbox-row-lite">
+                <input type="checkbox" checked={inputs.includeConcreteSlab} onChange={(event) => setInputs({ ...inputs, includeConcreteSlab: event.target.checked })} />
+                <span>Concrete slab foundation</span>
+              </label>
+              <label className="checkbox-row-lite">
+                <input type="checkbox" checked={inputs.includeBalcony} disabled={!inputs.includeLoft} onChange={(event) => setInputs({ ...inputs, includeBalcony: event.target.checked })} />
+                <span>Retract loft for balcony</span>
               </label>
             </div>
 
@@ -1064,6 +1172,10 @@ export default function App() {
                 <span>Timber shell volume</span>
                 <strong>{formatVolume(totalWoodVolume, unitSystem)}</strong>
               </div>
+              <div>
+                <span>Foundation grid</span>
+                <strong>{formatLength(widthAxisGrid.spacing, unitSystem)} x {formatLength(floorAxisGrid.spacing, unitSystem)}</strong>
+              </div>
             </div>
 
             <label className="checkbox-row-lite advanced-toggle-row">
@@ -1174,7 +1286,7 @@ export default function App() {
               </div>
               <div>
                 <span>Ground anchors</span>
-                <strong>{frameCount * 2} total anchors</strong>
+                <strong>{anchorPoints.length} total points</strong>
               </div>
             </div>
             <div className={availableSectionAdequate ? 'status-chip ok' : 'status-chip warn'}>
@@ -1215,6 +1327,11 @@ export default function App() {
               sideWallHeight={sideWallHeight}
               cabinLength={inputs.groundLength}
               glazingRatio={glazingRatio}
+              loftFloorHeight={loftFloorHeight}
+              loftDeckWidth={loftDeckWidth}
+              loftDeckLength={loftDeckLength}
+              balconyMargin={balconyMargin}
+              includeLoft={inputs.includeLoft}
             />
             <div className="preview-stats">
               <div>
@@ -1232,9 +1349,9 @@ export default function App() {
             </div>
           </section>
 
-          <FloorPlan title="Ground floor plan" areaLabel={formatArea(groundArea, unitSystem)} width={inputs.groundWidth} length={inputs.groundLength} loftWidth={0} unit={unitSystem} />
-          <FloorPlan title="Loft plan" areaLabel={inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'} width={inputs.groundWidth} length={inputs.groundLength} loftWidth={loftUsableWidth} unit={unitSystem} />
-          <AnchorPlan length={inputs.groundLength} width={inputs.groundWidth} anchorPositions={anchorPositions} unit={unitSystem} />
+          <FloorPlan title="Ground floor plan" areaLabel={formatArea(groundArea, unitSystem)} width={inputs.groundWidth} length={inputs.groundLength} loftWidth={0} loftLength={0} loftOffsetY={0} unit={unitSystem} />
+          <FloorPlan title="Loft plan" areaLabel={inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'} width={inputs.groundWidth} length={inputs.groundLength} loftWidth={loftUsableWidth} loftLength={loftDeckLength} loftOffsetY={balconyMargin} unit={unitSystem} />
+          <AnchorPlan length={inputs.groundLength} width={inputs.groundWidth} anchorPoints={anchorPoints} anchorSpacingX={widthAxisGrid.spacing} anchorSpacingY={floorAxisGrid.spacing} unit={unitSystem} />
         </aside>
       </div>
 
