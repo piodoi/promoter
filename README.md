@@ -31,10 +31,15 @@ Stack:
 Backend:
 
 ```powershell
+py -3.9 -m venv .venv
+.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
 cd promoter/backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8100
+..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8100
 ```
+
+Notes:
+- The backend currently works on Python 3.9 through 3.13.
+- Do not use Python 3.14 for this backend yet because `pydantic-core` does not provide a compatible wheel in this setup and pip falls back to a Rust build.
 
 Frontend:
 

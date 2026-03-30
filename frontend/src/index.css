@@ -70,7 +70,7 @@ select {
 
 .planner-hero {
   display: grid;
-  grid-template-columns: minmax(0, 2.1fr) minmax(260px, 0.9fr);
+  grid-template-columns: 1fr;
   gap: 24px;
   padding: 32px;
   border-radius: 30px;
@@ -109,9 +109,9 @@ select {
 }
 
 .planner-hero h1 {
-  font-size: clamp(2.4rem, 4vw, 4.8rem);
-  line-height: 0.92;
-  max-width: 11ch;
+  font-size: clamp(1.7rem, 2.5vw, 2.7rem);
+  line-height: 1.02;
+  max-width: none;
 }
 
 .planner-lede,
@@ -132,22 +132,29 @@ select {
   font-size: 1rem;
 }
 
-.hero-stats {
+.hero-stats,
+.preview-stats {
   display: grid;
   gap: 14px;
-  align-content: end;
   z-index: 1;
 }
 
-.hero-stats div {
+.hero-stats div,
+.preview-stats div {
   border-radius: 22px;
   padding: 20px;
 }
 
-.hero-stats strong {
+.hero-stats strong,
+.preview-stats strong {
   display: block;
   font-size: 1.6rem;
   margin-bottom: 4px;
+}
+
+.preview-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
 }
 
 .planner-layout {
@@ -372,6 +379,21 @@ select:focus {
   margin-top: 20px;
 }
 
+.toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.form-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 18px;
+}
+
 .advanced-panel {
   margin-top: 16px;
   padding-top: 4px;
@@ -472,11 +494,6 @@ select:focus {
 .status-chip.warn {
   background: rgba(140, 77, 34, 0.14);
   color: #6b3c1e;
-}
-
-.preview-panel {
-  position: sticky;
-  top: 20px;
 }
 
 .render-canvas,
@@ -685,10 +702,6 @@ select:focus {
   .notes-grid-lite {
     grid-template-columns: 1fr;
   }
-
-  .preview-panel {
-    position: static;
-  }
 }
 
 @media (max-width: 960px) {
@@ -701,7 +714,8 @@ select:focus {
   .form-grid,
   .stats-grid,
   .framing-summary,
-  .grid-layout {
+  .grid-layout,
+  .preview-stats {
     grid-template-columns: 1fr;
   }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { jsPDF } from 'jspdf';
 
@@ -10,6 +10,7 @@ type PlannerInputs = {
   groundWidth: number;
   groundLength: number;
   includeLoft: boolean;
+  includeSideWall: boolean;
   minimumLoftHeadroom: number;
   availableWoodWidth: number;
   availableWoodDepth: number;
@@ -70,6 +71,7 @@ type PlannerMetrics = {
 type DeferredNumberFieldProps = {
   label: string;
   value: number;
+  commitSignal: number;
   min?: number;
   max?: number;
   step?: number;
@@ -121,6 +123,7 @@ const defaultInputs: PlannerInputs = {
   groundWidth: 8,
   groundLength: 9,
   includeLoft: true,
+  includeSideWall: false,
   minimumLoftHeadroom: 1.4,
   availableWoodWidth: 0.045,
   availableWoodDepth: 0.195,
@@ -433,12 +436,21 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
   doc.save('a-frame-cabin-plan.pdf');
 }
 
-function DeferredNumberField({ label, value, min, max, step = 0.1, suffix, disabled, onCommit }: DeferredNumberFieldProps) {
+function DeferredNumberField({ label, value, commitSignal, min, max, step = 0.1, suffix, disabled, onCommit }: DeferredNumberFieldProps) {
   const [draft, setDraft] = useState(String(value));
+  const hasMounted = useRef(false);
 
   useEffect(() => {
     setDraft(String(value));
   }, [value]);
+
+  useEffect(() => {
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      return;
+    }
+    commitDraft();
+  }, [commitSignal]);
 
   function commitDraft() {
     const parsed = Number(draft);
@@ -516,6 +528,14 @@ function projectPoint(point: Point3D, yaw: number, pitch: number): ProjectedPoin
   };
 }
 
+function scaleProjectedPoint(point: ProjectedPoint, scale: number): ProjectedPoint {
+  return {
+    x: 210 + ((point.x - 210) * scale),
+    y: 160 + ((point.y - 160) * scale),
+    z: point.z,
+  };
+}
+
 function polygonPoints(points: ProjectedPoint[]) {
   return points.map((point) => `${point.x},${point.y}`).join(' ');
 }
@@ -523,6 +543,7 @@ function polygonPoints(points: ProjectedPoint[]) {
 function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLength, glazingRatio }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingRatio: number }) {
   const [yaw, setYaw] = useState(-0.72);
   const [pitch, setPitch] = useState(0.28);
+  const [zoom, setZoom] = useState(1);
   const [dragState, setDragState] = useState<DragState>({ active: false, lastX: 0, lastY: 0 });
 
   const halfWidth = Math.max(width / 2, 0.1);
@@ -540,6 +561,8 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
   const backRightKnee = { x: halfWidth, y: sideWallHeight, z: halfLength };
   const glazingInsetX = halfWidth * clamp(0.22 + glazingRatio * 0.25, 0.16, 0.35);
   const glazingInsetY = totalHeight * 0.14;
+  const fitScale = clamp(5.4 / Math.max(width, cabinLength, totalHeight, 2.8), 0.56, 1.2);
+  const sceneScale = fitScale * zoom;
 
   const faces = [
     {
@@ -563,7 +586,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
       points: [frontLeftBottom, frontLeftKnee, frontApex, frontRightKnee, frontRightBottom],
     },
   ].map((face) => {
-    const projected = face.points.map((point) => projectPoint(point, yaw, pitch));
+    const projected = face.points.map((point) => scaleProjectedPoint(projectPoint(point, yaw, pitch), sceneScale));
     const depth = projected.reduce((sum, point) => sum + point.z, 0) / projected.length;
     return { ...face, projected, depth };
   }).sort((left, right) => left.depth - right.depth);
@@ -574,7 +597,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
     { x: 0, y: totalHeight - glazingInsetY, z: -halfLength + 0.01 },
     { x: halfWidth - glazingInsetX * 0.82, y: sideWallHeight + 0.15, z: -halfLength + 0.01 },
     { x: halfWidth - glazingInsetX, y: 0.2, z: -halfLength + 0.01 },
-  ].map((point) => projectPoint(point, yaw, pitch));
+  ].map((point) => scaleProjectedPoint(projectPoint(point, yaw, pitch), sceneScale));
 
   function handlePointerDown(event: React.PointerEvent<SVGSVGElement>) {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -597,11 +620,17 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
     setDragState((current) => ({ ...current, active: false }));
   }
 
+  function handleWheel(event: React.WheelEvent<SVGSVGElement>) {
+    event.preventDefault();
+    const delta = event.deltaY > 0 ? -0.08 : 0.08;
+    setZoom((current) => clamp(current + delta, 0.68, 1.85));
+  }
+
   return (
     <div>
       <div className="preview-header-actions">
-        <span className="panel-note">Drag to orbit the shell preview.</span>
-        <button type="button" className="ghost-button" onClick={() => { setYaw(-0.72); setPitch(0.28); }}>
+        <span className="panel-note">Drag to orbit. Use the mouse wheel to zoom.</span>
+        <button type="button" className="ghost-button" onClick={() => { setYaw(-0.72); setPitch(0.28); setZoom(1); }}>
           Reset view
         </button>
       </div>
@@ -614,6 +643,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={() => setDragState((current) => ({ ...current, active: false }))}
+        onWheel={handleWheel}
       >
         <rect x="0" y="0" width="420" height="320" rx="24" fill="rgba(255,252,246,0.25)" />
         {faces.map((face, index) => (
@@ -621,9 +651,10 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
         ))}
         <polygon points={polygonPoints(glazingPolygon)} fill="rgba(124, 196, 216, 0.68)" stroke="#1f5f75" strokeWidth="2" />
         <text x="20" y="284">Width {formatValue(width, 2)}</text>
-        <text x="160" y="284">Length {formatValue(cabinLength, 2)}</text>
-        <text x="310" y="284">Height {formatValue(totalHeight, 2)}</text>
+        <text x="156" y="284">Length {formatValue(cabinLength, 2)}</text>
+        <text x="290" y="284">Height {formatValue(totalHeight, 2)}</text>
         <text x="20" y="302">Roof rise {formatValue(roofRise, 2)}</text>
+        <text x="170" y="302">Zoom {formatValue(zoom, 2)}x</text>
       </svg>
     </div>
   );
@@ -687,13 +718,16 @@ export default function App() {
   const [unitSystem, setUnitSystem] = useState<UnitSystem>('metric');
   const [showAdmin, setShowAdmin] = useState(false);
   const [showAdvancedCosts, setShowAdvancedCosts] = useState(false);
+  const [commitSignal, setCommitSignal] = useState(0);
   const [inputs, setInputs] = useState<PlannerInputs>(defaultInputs);
   const [sliderOffsets, setSliderOffsets] = useState<SliderOffsets>(defaultSliderOffsets);
 
   const groundArea = inputs.groundWidth * inputs.groundLength;
-  const recommendedSideWallHeight = inputs.includeLoft
+  const recommendedSideWallHeight = inputs.includeSideWall
+    ? (inputs.includeLoft
     ? clamp(inputs.groundWidth * 0.12, 0, 1.4)
-    : clamp(inputs.groundWidth * 0.04, 0, 0.45);
+    : clamp(inputs.groundWidth * 0.04, 0, 0.45))
+    : 0;
   const recommendedLoftFloorHeight = inputs.includeLoft
     ? clamp(inputs.groundWidth * 0.29, 1.8, 2.5)
     : 0;
@@ -704,7 +738,9 @@ export default function App() {
   const recommendedGlazingRatio = inputs.includeLoft ? 0.34 : 0.28;
 
   const totalHeight = scaleFromRecommendation(recommendedTotalHeight, sliderOffsets.totalHeight, inputs.includeLoft ? inputs.minimumLoftHeadroom + 1.4 : 2.6, 12);
-  const sideWallHeight = scaleFromRecommendation(recommendedSideWallHeight, sliderOffsets.sideWallHeight, 0, Math.max(totalHeight - 0.6, 0.1));
+  const sideWallHeight = inputs.includeSideWall
+    ? scaleFromRecommendation(recommendedSideWallHeight, sliderOffsets.sideWallHeight, 0, Math.max(totalHeight - 0.6, 0.1))
+    : 0;
   const maxLoftFloorHeight = Math.max(totalHeight - inputs.minimumLoftHeadroom - 0.3, 1.6);
   const loftFloorHeight = inputs.includeLoft
     ? scaleFromRecommendation(Math.min(recommendedLoftFloorHeight, maxLoftFloorHeight), sliderOffsets.loftFloorHeight, 1.6, maxLoftFloorHeight)
@@ -792,6 +828,10 @@ export default function App() {
     downloadFile(dxf, 'a-frame-cabin-plan.dxf', 'application/dxf');
   }
 
+  function handleCalculate() {
+    setCommitSignal((current) => current + 1);
+  }
+
   return (
     <div className="planner-app">
       <section className="planner-hero">
@@ -801,20 +841,6 @@ export default function App() {
           <p className="planner-lede">
             The ground floor width and length are the only core size inputs. Surface, loft, and framing numbers are calculated, and the live shell preview updates after Enter or blur on text fields.
           </p>
-        </div>
-        <div className="hero-stats">
-          <div>
-            <strong>{formatArea(groundArea, unitSystem)}</strong>
-            <span>Ground floor area</span>
-          </div>
-          <div>
-            <strong>{inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'}</strong>
-            <span>Usable upstairs</span>
-          </div>
-          <div>
-            <strong>{formatCurrency(shellCostEstimate)}</strong>
-            <span>Shell estimate</span>
-          </div>
         </div>
       </section>
 
@@ -840,6 +866,7 @@ export default function App() {
               <DeferredNumberField
                 label={`Ground width (${unitSystem === 'metric' ? 'm' : 'ft'})`}
                 value={toDisplayLength(inputs.groundWidth, unitSystem)}
+                commitSignal={commitSignal}
                 min={unitSystem === 'metric' ? 2.4 : 8}
                 max={unitSystem === 'metric' ? 16 : 52}
                 step={0.1}
@@ -848,6 +875,7 @@ export default function App() {
               <DeferredNumberField
                 label={`Ground length (${unitSystem === 'metric' ? 'm' : 'ft'})`}
                 value={toDisplayLength(inputs.groundLength, unitSystem)}
+                commitSignal={commitSignal}
                 min={unitSystem === 'metric' ? 2.4 : 8}
                 max={unitSystem === 'metric' ? 20 : 66}
                 step={0.1}
@@ -861,6 +889,7 @@ export default function App() {
               <DeferredNumberField
                 label={`Minimum loft headroom (${unitSystem === 'metric' ? 'm' : 'ft'})`}
                 value={toDisplayLength(inputs.minimumLoftHeadroom, unitSystem)}
+                commitSignal={commitSignal}
                 min={unitSystem === 'metric' ? 1 : 3.25}
                 max={unitSystem === 'metric' ? 2.5 : 8.2}
                 step={0.1}
@@ -869,10 +898,21 @@ export default function App() {
               />
             </div>
 
-            <label className="checkbox-row-lite">
-              <input type="checkbox" checked={inputs.includeLoft} onChange={(event) => setInputs({ ...inputs, includeLoft: event.target.checked })} />
-              <span>Include loft</span>
-            </label>
+            <div className="toggle-row">
+              <label className="checkbox-row-lite">
+                <input type="checkbox" checked={inputs.includeLoft} onChange={(event) => setInputs({ ...inputs, includeLoft: event.target.checked })} />
+                <span>Include loft</span>
+              </label>
+              <label className="checkbox-row-lite">
+                <input type="checkbox" checked={inputs.includeSideWall} onChange={(event) => setInputs({ ...inputs, includeSideWall: event.target.checked })} />
+                <span>Include side wall</span>
+              </label>
+            </div>
+
+            <div className="form-actions-row">
+              <button type="button" className="secondary-button" onClick={handleCalculate}>Calculate</button>
+              <span className="muted">Text fields already apply on blur or Enter. Use Calculate to force-refresh any pending edits.</span>
+            </div>
           </section>
 
           <section className="panel stats-panel">
@@ -917,13 +957,15 @@ export default function App() {
                 sliderValue={sliderOffsets.totalHeight}
                 onSliderChange={(value) => setSliderOffsets({ ...sliderOffsets, totalHeight: value })}
               />
-              <AdjustmentSlider
-                label="Side wall height"
-                valueLabel={formatLength(sideWallHeight, unitSystem)}
-                helper="Lower this to approach a true A-frame."
-                sliderValue={sliderOffsets.sideWallHeight}
-                onSliderChange={(value) => setSliderOffsets({ ...sliderOffsets, sideWallHeight: value })}
-              />
+              {inputs.includeSideWall ? (
+                <AdjustmentSlider
+                  label="Side wall height"
+                  valueLabel={formatLength(sideWallHeight, unitSystem)}
+                  helper="Lower this to approach a true A-frame."
+                  sliderValue={sliderOffsets.sideWallHeight}
+                  onSliderChange={(value) => setSliderOffsets({ ...sliderOffsets, sideWallHeight: value })}
+                />
+              ) : null}
               {inputs.includeLoft ? (
                 <AdjustmentSlider
                   label="Loft floor level"
@@ -995,6 +1037,7 @@ export default function App() {
                   <DeferredNumberField
                     label={`Available wood width (${unitSystem === 'metric' ? 'mm' : 'in'})`}
                     value={toDisplaySection(inputs.availableWoodWidth, unitSystem)}
+                    commitSignal={commitSignal}
                     min={unitSystem === 'metric' ? 25 : 1}
                     max={unitSystem === 'metric' ? 300 : 12}
                     step={1}
@@ -1003,6 +1046,7 @@ export default function App() {
                   <DeferredNumberField
                     label={`Available wood depth (${unitSystem === 'metric' ? 'mm' : 'in'})`}
                     value={toDisplaySection(inputs.availableWoodDepth, unitSystem)}
+                    commitSignal={commitSignal}
                     min={unitSystem === 'metric' ? 75 : 3}
                     max={unitSystem === 'metric' ? 400 : 16}
                     step={1}
@@ -1011,6 +1055,7 @@ export default function App() {
                   <DeferredNumberField
                     label={`Stock length (${unitSystem === 'metric' ? 'm' : 'ft'})`}
                     value={toDisplayLength(inputs.availableWoodLength, unitSystem)}
+                    commitSignal={commitSignal}
                     min={unitSystem === 'metric' ? 2 : 6.5}
                     max={unitSystem === 'metric' ? 12 : 39}
                     step={0.1}
@@ -1019,6 +1064,7 @@ export default function App() {
                   <DeferredNumberField
                     label={`Wood cost (${unitSystem === 'metric' ? 'per m3' : 'per ft3'})`}
                     value={toDisplayVolumeCost(inputs.woodCostPerCubic, unitSystem)}
+                    commitSignal={commitSignal}
                     min={0}
                     step={1}
                     onCommit={(value) => setInputs({ ...inputs, woodCostPerCubic: fromDisplayVolumeCost(value, unitSystem) })}
@@ -1026,6 +1072,7 @@ export default function App() {
                   <DeferredNumberField
                     label={`Panel cost (${unitSystem === 'metric' ? 'per m2' : 'per ft2'})`}
                     value={toDisplaySurfaceCost(inputs.panelCostPerSquare, unitSystem)}
+                    commitSignal={commitSignal}
                     min={0}
                     step={1}
                     onCommit={(value) => setInputs({ ...inputs, panelCostPerSquare: fromDisplaySurfaceCost(value, unitSystem) })}
@@ -1033,6 +1080,7 @@ export default function App() {
                   <DeferredNumberField
                     label={`Glass cost (${unitSystem === 'metric' ? 'per m2' : 'per ft2'})`}
                     value={toDisplaySurfaceCost(inputs.glassCostPerSquare, unitSystem)}
+                    commitSignal={commitSignal}
                     min={0}
                     step={1}
                     onCommit={(value) => setInputs({ ...inputs, glassCostPerSquare: fromDisplaySurfaceCost(value, unitSystem) })}
@@ -1116,6 +1164,20 @@ export default function App() {
               cabinLength={inputs.groundLength}
               glazingRatio={glazingRatio}
             />
+            <div className="preview-stats">
+              <div>
+                <strong>{formatArea(groundArea, unitSystem)}</strong>
+                <span>Ground floor area</span>
+              </div>
+              <div>
+                <strong>{inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'}</strong>
+                <span>Usable upstairs</span>
+              </div>
+              <div>
+                <strong>{formatCurrency(shellCostEstimate)}</strong>
+                <span>Shell estimate</span>
+              </div>
+            </div>
           </section>
 
           <FloorPlan title="Ground floor plan" areaLabel={formatArea(groundArea, unitSystem)} width={inputs.groundWidth} length={inputs.groundLength} loftWidth={0} unit={unitSystem} />
