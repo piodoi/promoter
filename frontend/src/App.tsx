@@ -598,6 +598,20 @@ function polygonPoints(points: ProjectedPoint[]) {
   return points.map((point) => `${point.x},${point.y}`).join(' ');
 }
 
+function getPlanFrame(length: number, width: number, maxDrawWidth: number, maxDrawHeight: number) {
+  const safeLength = Math.max(length, 0.1);
+  const safeWidth = Math.max(width, 0.1);
+  const scale = Math.min(maxDrawWidth / safeLength, maxDrawHeight / safeWidth);
+  const drawWidth = safeLength * scale;
+  const drawHeight = safeWidth * scale;
+
+  return {
+    drawWidth,
+    drawHeight,
+    scale,
+  };
+}
+
 function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLength, glazingRatio, loftFloorHeight, loftDeckWidth, loftDeckLength, balconyMargin, includeLoft, frameCount, actualSpacing, includeConcreteSlab }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingRatio: number; loftFloorHeight: number; loftDeckWidth: number; loftDeckLength: number; balconyMargin: number; includeLoft: boolean; frameCount: number; actualSpacing: number; includeConcreteSlab: boolean }) {
   const defaultYaw = -0.72;
   const defaultPitch = 0.28;
@@ -826,14 +840,15 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
 function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, loftOffsetY, unit }: { title: string; areaLabel: string; width: number; length: number; loftWidth: number; loftLength: number; loftOffsetY: number; unit: UnitSystem }) {
   const outerX = 24;
   const outerY = 30;
-  const outerWidth = 312;
-  const outerHeight = 168;
-  const loftRatio = width > 0 ? loftWidth / width : 0;
-  const loftVisualWidth = outerWidth * clamp(loftRatio, 0, 1);
-  const loftX = outerX + ((outerWidth - loftVisualWidth) / 2);
-  const loftLengthRatio = length > 0 ? loftLength / length : 0;
-  const loftVisualLength = outerHeight * clamp(loftLengthRatio, 0, 1);
-  const loftY = outerY + ((length > 0 ? loftOffsetY / length : 0) * outerHeight);
+  const maxDrawWidth = 312;
+  const maxDrawHeight = 168;
+  const planFrame = getPlanFrame(length, width, maxDrawWidth, maxDrawHeight);
+  const planX = outerX + ((maxDrawWidth - planFrame.drawWidth) / 2);
+  const planY = outerY + ((maxDrawHeight - planFrame.drawHeight) / 2);
+  const loftVisualWidth = loftLength * planFrame.scale;
+  const loftVisualHeight = loftWidth * planFrame.scale;
+  const loftX = planX + (loftOffsetY * planFrame.scale);
+  const loftY = planY + ((planFrame.drawHeight - loftVisualHeight) / 2);
 
   return (
     <div className="visual-card">
@@ -842,10 +857,8 @@ function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, lof
         <span>{areaLabel}</span>
       </div>
       <svg viewBox="0 0 360 230" className="plan-canvas" role="img" aria-label={`${title} floor plan`}>
-        <rect x={outerX} y={outerY} width={outerWidth} height={outerHeight} rx="16" fill="#f6ede1" stroke="#6f5134" strokeWidth="3" />
-        {loftWidth > 0 && loftLength > 0 ? <rect x={loftX} y={loftY} width={loftVisualWidth} height={loftVisualLength} rx="10" fill="#cbb18f" fillOpacity="0.82" stroke="#7f5d3b" strokeDasharray="6 6" /> : null}
-        <line x1={outerX} y1={outerY + outerHeight + 14} x2={outerX + outerWidth} y2={outerY + outerHeight + 14} stroke="#4f6570" strokeWidth="2" />
-        <line x1={outerX - 14} y1={outerY} x2={outerX - 14} y2={outerY + outerHeight} stroke="#4f6570" strokeWidth="2" />
+        <rect x={planX} y={planY} width={planFrame.drawWidth} height={planFrame.drawHeight} rx="16" fill="#f6ede1" stroke="#6f5134" strokeWidth="3" />
+        {loftWidth > 0 && loftLength > 0 ? <rect x={loftX} y={loftY} width={loftVisualWidth} height={loftVisualHeight} rx="10" fill="#cbb18f" fillOpacity="0.82" stroke="#7f5d3b" strokeDasharray="6 6" /> : null}
         <text x="180" y="222" textAnchor="middle">Length {formatLength(length, unit)}</text>
         <text x="14" y="118" transform="rotate(-90 14 118)" textAnchor="middle">Width {formatLength(width, unit)}</text>
       </svg>
@@ -854,6 +867,14 @@ function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, lof
 }
 
 function AnchorPlan({ length, width, anchorPoints, anchorSpacingX, anchorSpacingY, unit }: { length: number; width: number; anchorPoints: { x: number; y: number }[]; anchorSpacingX: number; anchorSpacingY: number; unit: UnitSystem }) {
+  const outerX = 34;
+  const outerY = 44;
+  const maxDrawWidth = 292;
+  const maxDrawHeight = 142;
+  const planFrame = getPlanFrame(length, width, maxDrawWidth, maxDrawHeight);
+  const planX = outerX + ((maxDrawWidth - planFrame.drawWidth) / 2);
+  const planY = outerY + ((maxDrawHeight - planFrame.drawHeight) / 2);
+
   return (
     <div className="visual-card">
       <div className="visual-header">
@@ -861,10 +882,10 @@ function AnchorPlan({ length, width, anchorPoints, anchorSpacingX, anchorSpacing
         <span>{anchorPoints.length} anchors</span>
       </div>
       <svg viewBox="0 0 360 230" className="plan-canvas" role="img" aria-label="Ground anchor layout">
-        <rect x="34" y="44" width="292" height="142" rx="14" fill="#f3eadf" stroke="#5c4430" strokeWidth="3" />
+        <rect x={planX} y={planY} width={planFrame.drawWidth} height={planFrame.drawHeight} rx="14" fill="#f3eadf" stroke="#5c4430" strokeWidth="3" />
         {anchorPoints.map((anchorPoint, index) => {
-          const x = 34 + ((length > 0 ? anchorPoint.y / length : 0) * 292);
-          const y = 44 + ((width > 0 ? anchorPoint.x / width : 0) * 142);
+          const x = planX + ((length > 0 ? anchorPoint.y / length : 0) * planFrame.drawWidth);
+          const y = planY + ((width > 0 ? anchorPoint.x / width : 0) * planFrame.drawHeight);
           return (
             <g key={`${anchorPoint.x}-${anchorPoint.y}-${index}`}>
               <circle cx={x} cy={y} r="5.3" fill="#1f5f75" />
@@ -873,7 +894,7 @@ function AnchorPlan({ length, width, anchorPoints, anchorSpacingX, anchorSpacing
         })}
         <text x="180" y="218" textAnchor="middle">Length {formatLength(length, unit)}</text>
         <text x="20" y="118" transform="rotate(-90 20 118)" textAnchor="middle">Width {formatLength(width, unit)}</text>
-        <text x="326" y="30" textAnchor="end">Grid {formatLength(anchorSpacingY, unit)} x {formatLength(anchorSpacingX, unit)}</text>
+        <text x={planX + (planFrame.drawWidth / 2)} y="30" textAnchor="middle">Grid {formatLength(anchorSpacingY, unit)} x {formatLength(anchorSpacingX, unit)}</text>
       </svg>
     </div>
   );
