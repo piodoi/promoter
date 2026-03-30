@@ -69,6 +69,7 @@ type PlannerMetrics = {
 };
 
 type DeferredNumberFieldProps = {
+  fieldId: string;
   label: string;
   value: number;
   commitSignal: number;
@@ -78,6 +79,7 @@ type DeferredNumberFieldProps = {
   suffix?: string;
   disabled?: boolean;
   onCommit: (value: number) => void;
+  onDirtyChange: (fieldId: string, isDirty: boolean) => void;
 };
 
 type AdjustmentSliderProps = {
@@ -436,12 +438,13 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
   doc.save('a-frame-cabin-plan.pdf');
 }
 
-function DeferredNumberField({ label, value, commitSignal, min, max, step = 0.1, suffix, disabled, onCommit }: DeferredNumberFieldProps) {
+function DeferredNumberField({ fieldId, label, value, commitSignal, min, max, step = 0.1, suffix, disabled, onCommit, onDirtyChange }: DeferredNumberFieldProps) {
   const [draft, setDraft] = useState(String(value));
   const hasMounted = useRef(false);
 
   useEffect(() => {
     setDraft(String(value));
+    onDirtyChange(fieldId, false);
   }, [value]);
 
   useEffect(() => {
@@ -456,9 +459,11 @@ function DeferredNumberField({ label, value, commitSignal, min, max, step = 0.1,
     const parsed = Number(draft);
     if (!Number.isFinite(parsed)) {
       setDraft(String(value));
+      onDirtyChange(fieldId, false);
       return;
     }
     const constrained = clamp(parsed, min ?? parsed, max ?? parsed);
+    onDirtyChange(fieldId, false);
     onCommit(constrained);
   }
 
@@ -473,7 +478,11 @@ function DeferredNumberField({ label, value, commitSignal, min, max, step = 0.1,
           step={step}
           value={draft}
           disabled={disabled}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            const nextDraft = event.target.value;
+            setDraft(nextDraft);
+            onDirtyChange(fieldId, nextDraft !== String(value));
+          }}
           onBlur={commitDraft}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -522,8 +531,8 @@ function projectPoint(point: Point3D, yaw: number, pitch: number): ProjectedPoin
   const rotated = rotatePoint(point, yaw, pitch);
   const perspective = 250 / (rotated.z + 7);
   return {
-    x: 210 + (rotated.x * perspective * 26),
-    y: 190 - (rotated.y * perspective * 26),
+    x: 210 + (rotated.x * perspective * 20),
+    y: 186 - (rotated.y * perspective * 20),
     z: rotated.z,
   };
 }
@@ -541,9 +550,12 @@ function polygonPoints(points: ProjectedPoint[]) {
 }
 
 function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLength, glazingRatio }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingRatio: number }) {
-  const [yaw, setYaw] = useState(-0.72);
-  const [pitch, setPitch] = useState(0.28);
-  const [zoom, setZoom] = useState(1);
+  const defaultYaw = -0.72;
+  const defaultPitch = 0.28;
+  const defaultZoom = 0.24;
+  const [yaw, setYaw] = useState(defaultYaw);
+  const [pitch, setPitch] = useState(defaultPitch);
+  const [zoom, setZoom] = useState(defaultZoom);
   const [dragState, setDragState] = useState<DragState>({ active: false, lastX: 0, lastY: 0 });
 
   const halfWidth = Math.max(width / 2, 0.1);
@@ -561,7 +573,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
   const backRightKnee = { x: halfWidth, y: sideWallHeight, z: halfLength };
   const glazingInsetX = halfWidth * clamp(0.22 + glazingRatio * 0.25, 0.16, 0.35);
   const glazingInsetY = totalHeight * 0.14;
-  const fitScale = clamp(5.4 / Math.max(width, cabinLength, totalHeight, 2.8), 0.56, 1.2);
+  const fitScale = clamp(1.6 / Math.max(width, cabinLength, totalHeight, 2.8), 0.16, 0.5);
   const sceneScale = fitScale * zoom;
 
   const faces = [
@@ -620,19 +632,25 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
     setDragState((current) => ({ ...current, active: false }));
   }
 
-  function handleWheel(event: React.WheelEvent<SVGSVGElement>) {
-    event.preventDefault();
-    const delta = event.deltaY > 0 ? -0.08 : 0.08;
-    setZoom((current) => clamp(current + delta, 0.68, 1.85));
+  function stepZoom(delta: number) {
+    setZoom((current) => clamp(current + delta, 0.12, 1.6));
   }
 
   return (
     <div>
       <div className="preview-header-actions">
-        <span className="panel-note">Drag to orbit. Use the mouse wheel to zoom.</span>
-        <button type="button" className="ghost-button" onClick={() => { setYaw(-0.72); setPitch(0.28); setZoom(1); }}>
-          Reset view
-        </button>
+        <span className="panel-note">Drag to orbit. Use the buttons to zoom in and out.</span>
+        <div className="preview-button-group">
+          <button type="button" className="ghost-button" onClick={() => stepZoom(-0.12)} aria-label="Zoom out preview">
+            -
+          </button>
+          <button type="button" className="ghost-button" onClick={() => stepZoom(0.12)} aria-label="Zoom in preview">
+            +
+          </button>
+          <button type="button" className="ghost-button" onClick={() => { setYaw(defaultYaw); setPitch(defaultPitch); setZoom(defaultZoom); }}>
+            Reset view
+          </button>
+        </div>
       </div>
       <svg
         viewBox="0 0 420 320"
@@ -643,7 +661,6 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={() => setDragState((current) => ({ ...current, active: false }))}
-        onWheel={handleWheel}
       >
         <rect x="0" y="0" width="420" height="320" rx="24" fill="rgba(255,252,246,0.25)" />
         {faces.map((face, index) => (
@@ -719,6 +736,7 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [showAdvancedCosts, setShowAdvancedCosts] = useState(false);
   const [commitSignal, setCommitSignal] = useState(0);
+  const [dirtyFields, setDirtyFields] = useState<string[]>([]);
   const [inputs, setInputs] = useState<PlannerInputs>(defaultInputs);
   const [sliderOffsets, setSliderOffsets] = useState<SliderOffsets>(defaultSliderOffsets);
 
@@ -832,6 +850,19 @@ export default function App() {
     setCommitSignal((current) => current + 1);
   }
 
+  function handleDirtyChange(fieldId: string, isDirty: boolean) {
+    setDirtyFields((current) => {
+      if (isDirty) {
+        return current.includes(fieldId) ? current : [...current, fieldId];
+      }
+      return current.filter((item) => item !== fieldId);
+    });
+  }
+
+  function handleResetTuning() {
+    setSliderOffsets(defaultSliderOffsets);
+  }
+
   return (
     <div className="planner-app">
       <section className="planner-hero">
@@ -864,6 +895,7 @@ export default function App() {
 
             <div className="input-grid">
               <DeferredNumberField
+                fieldId="groundWidth"
                 label={`Ground width (${unitSystem === 'metric' ? 'm' : 'ft'})`}
                 value={toDisplayLength(inputs.groundWidth, unitSystem)}
                 commitSignal={commitSignal}
@@ -871,8 +903,10 @@ export default function App() {
                 max={unitSystem === 'metric' ? 16 : 52}
                 step={0.1}
                 onCommit={(value) => setInputs({ ...inputs, groundWidth: fromDisplayLength(value, unitSystem) })}
+                onDirtyChange={handleDirtyChange}
               />
               <DeferredNumberField
+                fieldId="groundLength"
                 label={`Ground length (${unitSystem === 'metric' ? 'm' : 'ft'})`}
                 value={toDisplayLength(inputs.groundLength, unitSystem)}
                 commitSignal={commitSignal}
@@ -880,6 +914,7 @@ export default function App() {
                 max={unitSystem === 'metric' ? 20 : 66}
                 step={0.1}
                 onCommit={(value) => setInputs({ ...inputs, groundLength: fromDisplayLength(value, unitSystem) })}
+                onDirtyChange={handleDirtyChange}
               />
               <div className="surface-output-card">
                 <span>Calculated ground floor area</span>
@@ -887,6 +922,7 @@ export default function App() {
                 <p className="muted">Surface is derived from the ground width and length.</p>
               </div>
               <DeferredNumberField
+                fieldId="minimumLoftHeadroom"
                 label={`Minimum loft headroom (${unitSystem === 'metric' ? 'm' : 'ft'})`}
                 value={toDisplayLength(inputs.minimumLoftHeadroom, unitSystem)}
                 commitSignal={commitSignal}
@@ -895,6 +931,7 @@ export default function App() {
                 step={0.1}
                 disabled={!inputs.includeLoft}
                 onCommit={(value) => setInputs({ ...inputs, minimumLoftHeadroom: fromDisplayLength(value, unitSystem) })}
+                onDirtyChange={handleDirtyChange}
               />
             </div>
 
@@ -910,7 +947,9 @@ export default function App() {
             </div>
 
             <div className="form-actions-row">
-              <button type="button" className="secondary-button" onClick={handleCalculate}>Calculate</button>
+              <button type="button" className={dirtyFields.length > 0 ? 'primary-button' : 'secondary-button'} onClick={handleCalculate}>
+                {dirtyFields.length > 0 ? `Calculate ${dirtyFields.length} pending change${dirtyFields.length === 1 ? '' : 's'}` : 'Calculate'}
+              </button>
               <span className="muted">Text fields already apply on blur or Enter. Use Calculate to force-refresh any pending edits.</span>
             </div>
           </section>
@@ -921,6 +960,7 @@ export default function App() {
                 <p className="section-kicker">Derived shell</p>
                 <h2>Main outputs with tuning sliders</h2>
               </div>
+              <button type="button" className="ghost-button" onClick={handleResetTuning}>Reset tuning</button>
             </div>
             <div className="stats-grid">
               <article>
@@ -1035,6 +1075,7 @@ export default function App() {
               <div className="advanced-panel">
                 <div className="input-grid compact-input-grid">
                   <DeferredNumberField
+                    fieldId="availableWoodWidth"
                     label={`Available wood width (${unitSystem === 'metric' ? 'mm' : 'in'})`}
                     value={toDisplaySection(inputs.availableWoodWidth, unitSystem)}
                     commitSignal={commitSignal}
@@ -1042,8 +1083,10 @@ export default function App() {
                     max={unitSystem === 'metric' ? 300 : 12}
                     step={1}
                     onCommit={(value) => setInputs({ ...inputs, availableWoodWidth: fromDisplaySection(value, unitSystem) })}
+                    onDirtyChange={handleDirtyChange}
                   />
                   <DeferredNumberField
+                    fieldId="availableWoodDepth"
                     label={`Available wood depth (${unitSystem === 'metric' ? 'mm' : 'in'})`}
                     value={toDisplaySection(inputs.availableWoodDepth, unitSystem)}
                     commitSignal={commitSignal}
@@ -1051,8 +1094,10 @@ export default function App() {
                     max={unitSystem === 'metric' ? 400 : 16}
                     step={1}
                     onCommit={(value) => setInputs({ ...inputs, availableWoodDepth: fromDisplaySection(value, unitSystem) })}
+                    onDirtyChange={handleDirtyChange}
                   />
                   <DeferredNumberField
+                    fieldId="availableWoodLength"
                     label={`Stock length (${unitSystem === 'metric' ? 'm' : 'ft'})`}
                     value={toDisplayLength(inputs.availableWoodLength, unitSystem)}
                     commitSignal={commitSignal}
@@ -1060,30 +1105,37 @@ export default function App() {
                     max={unitSystem === 'metric' ? 12 : 39}
                     step={0.1}
                     onCommit={(value) => setInputs({ ...inputs, availableWoodLength: fromDisplayLength(value, unitSystem) })}
+                    onDirtyChange={handleDirtyChange}
                   />
                   <DeferredNumberField
+                    fieldId="woodCostPerCubic"
                     label={`Wood cost (${unitSystem === 'metric' ? 'per m3' : 'per ft3'})`}
                     value={toDisplayVolumeCost(inputs.woodCostPerCubic, unitSystem)}
                     commitSignal={commitSignal}
                     min={0}
                     step={1}
                     onCommit={(value) => setInputs({ ...inputs, woodCostPerCubic: fromDisplayVolumeCost(value, unitSystem) })}
+                    onDirtyChange={handleDirtyChange}
                   />
                   <DeferredNumberField
+                    fieldId="panelCostPerSquare"
                     label={`Panel cost (${unitSystem === 'metric' ? 'per m2' : 'per ft2'})`}
                     value={toDisplaySurfaceCost(inputs.panelCostPerSquare, unitSystem)}
                     commitSignal={commitSignal}
                     min={0}
                     step={1}
                     onCommit={(value) => setInputs({ ...inputs, panelCostPerSquare: fromDisplaySurfaceCost(value, unitSystem) })}
+                    onDirtyChange={handleDirtyChange}
                   />
                   <DeferredNumberField
+                    fieldId="glassCostPerSquare"
                     label={`Glass cost (${unitSystem === 'metric' ? 'per m2' : 'per ft2'})`}
                     value={toDisplaySurfaceCost(inputs.glassCostPerSquare, unitSystem)}
                     commitSignal={commitSignal}
                     min={0}
                     step={1}
                     onCommit={(value) => setInputs({ ...inputs, glassCostPerSquare: fromDisplaySurfaceCost(value, unitSystem) })}
+                    onDirtyChange={handleDirtyChange}
                   />
                 </div>
                 <div className="cost-breakdown">

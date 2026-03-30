@@ -447,6 +447,13 @@ select:focus {
   margin-bottom: 12px;
 }
 
+.preview-button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .ghost-button {
   border: 1px solid rgba(31, 95, 117, 0.18);
   border-radius: 999px;
