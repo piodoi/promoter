@@ -429,6 +429,93 @@ function addPdfAnchorPlan(doc: jsPDF, x: number, y: number, width: number, lengt
   doc.text(`Grid ${formatLength(anchorSpacingX, unitSystem)} x ${formatLength(anchorSpacingY, unitSystem)}`, x, y + 62);
 }
 
+function addPdfFrameBlueprint(doc: jsPDF, x: number, y: number, metrics: PlannerMetrics, inputs: PlannerInputs, unitSystem: UnitSystem) {
+  const boxWidth = 182;
+  const boxHeight = 138;
+  const drawingPadding = 16;
+  const drawWidth = boxWidth - (drawingPadding * 2);
+  const drawHeight = boxHeight - 28;
+  const scale = Math.min(drawWidth / Math.max(inputs.groundWidth, 1), drawHeight / Math.max(metrics.totalHeight, 1));
+  const baseWidth = inputs.groundWidth * scale;
+  const totalHeight = metrics.totalHeight * scale;
+  const sideWallHeight = metrics.sideWallHeight * scale;
+  const originX = x + ((boxWidth - baseWidth) / 2);
+  const baseY = y + boxHeight - 18;
+  const apexX = originX + (baseWidth / 2);
+  const apexY = baseY - totalHeight;
+  const leftTopY = baseY - sideWallHeight;
+  const rightTopY = leftTopY;
+  const loftY = baseY - (metrics.loftFloorHeight * scale);
+  const loftWidth = metrics.loftDeckWidth * scale;
+  const loftX = x + ((boxWidth - loftWidth) / 2);
+
+  doc.setFontSize(15);
+  doc.text('Single A-frame blueprint', x, y - 4);
+  doc.setDrawColor(71, 54, 39);
+  doc.roundedRect(x, y, boxWidth, boxHeight, 6, 6);
+
+  doc.setLineWidth(0.7);
+  doc.line(originX, baseY, originX, leftTopY);
+  doc.line(originX, leftTopY, apexX, apexY);
+  doc.line(apexX, apexY, originX + baseWidth, rightTopY);
+  doc.line(originX + baseWidth, rightTopY, originX + baseWidth, baseY);
+  doc.line(originX, baseY, originX + baseWidth, baseY);
+
+  if (metrics.sideWallHeight > 0) {
+    doc.setDrawColor(127, 93, 59);
+    doc.setLineWidth(0.45);
+    doc.line(originX, leftTopY, originX + baseWidth, rightTopY);
+  }
+
+  if (metrics.loftArea > 0) {
+    doc.setDrawColor(31, 95, 117);
+    doc.setLineWidth(0.7);
+    doc.line(loftX, loftY, loftX + loftWidth, loftY);
+    doc.line(loftX, loftY, loftX, baseY);
+    doc.line(loftX + loftWidth, loftY, loftX + loftWidth, baseY);
+  }
+
+  doc.setDrawColor(79, 101, 112);
+  doc.setLineWidth(0.35);
+  doc.line(originX, baseY + 8, originX + baseWidth, baseY + 8);
+  doc.line(originX, baseY + 5, originX, baseY + 11);
+  doc.line(originX + baseWidth, baseY + 5, originX + baseWidth, baseY + 11);
+  doc.text(`Base width ${formatLength(inputs.groundWidth, unitSystem)}`, x + (boxWidth / 2), baseY + 15, { align: 'center' });
+
+  doc.line(originX - 10, baseY, originX - 10, apexY);
+  doc.line(originX - 13, baseY, originX - 7, baseY);
+  doc.line(originX - 13, apexY, originX - 7, apexY);
+  doc.text(`Total height ${formatLength(metrics.totalHeight, unitSystem)}`, originX - 14, y + 8, { angle: 90 });
+
+  if (metrics.sideWallHeight > 0) {
+    doc.line(originX + baseWidth + 10, baseY, originX + baseWidth + 10, leftTopY);
+    doc.line(originX + baseWidth + 7, baseY, originX + baseWidth + 13, baseY);
+    doc.line(originX + baseWidth + 7, leftTopY, originX + baseWidth + 13, leftTopY);
+    doc.text(`Side wall ${formatLength(metrics.sideWallHeight, unitSystem)}`, originX + baseWidth + 16, baseY - 4, { angle: 90 });
+  }
+
+  doc.setFontSize(10);
+  doc.setTextColor(71, 54, 39);
+  doc.text(`Rafter length ${formatLength(metrics.rafterLength, unitSystem)}`, x + 10, y + boxHeight + 8);
+  doc.text(`Roof pitch ${formatValue(metrics.roofPitch, 1)} deg`, x + 74, y + boxHeight + 8);
+  doc.text(`Loft level ${metrics.loftArea > 0 ? formatLength(metrics.loftFloorHeight, unitSystem) : 'No loft'}`, x + 124, y + boxHeight + 8);
+
+  doc.setFontSize(11);
+  doc.text('DIY cut list and counts', x, y + boxHeight + 22);
+  doc.setFontSize(9);
+  const frameRows = [
+    `Build ${metrics.frameCount} A-frames at ${formatLength(metrics.actualSpacing, unitSystem)} centers`,
+    `Per frame: 2 rafters at ${formatLength(metrics.rafterLength, unitSystem)}`,
+    `Per frame: 1 base tie at ${formatLength(inputs.groundWidth, unitSystem)}`,
+    metrics.sideWallHeight > 0 ? `Per frame: 2 side wall studs at ${formatLength(metrics.sideWallHeight, unitSystem)}` : 'True A-frame: no vertical side wall studs',
+    metrics.loftArea > 0 ? `Loft deck level set at ${formatLength(metrics.loftFloorHeight, unitSystem)}` : 'No loft deck included in this configuration',
+  ];
+
+  frameRows.forEach((row, index) => {
+    doc.text(`- ${row}`, x, y + boxHeight + 30 + (index * 6));
+  });
+}
+
 function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: UnitSystem) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const stockWidth = unitSystem === 'metric' ? inputs.availableWoodWidth * 1000 : (inputs.availableWoodWidth * 1000) / MM_PER_INCH;
@@ -482,6 +569,13 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
   doc.setFontSize(9);
   doc.text(`Rafter spacing ${formatLength(metrics.actualSpacing, unitSystem)} | Roof pitch ${formatValue(metrics.roofPitch, 1)} deg`, 105, y + 134);
   doc.text(`Facade glazing ${formatValue(metrics.glazingRatio * 100, 0)}%`, 105, y + 140);
+
+  doc.addPage();
+  doc.setFontSize(20);
+  doc.text('DIY frame sheet', 14, 18);
+  doc.setFontSize(10);
+  doc.text('Use this page as a single-frame reference for cutting and setting the repeated A-frame modules.', 14, 26);
+  addPdfFrameBlueprint(doc, 14, 36, metrics, inputs, unitSystem);
 
   doc.save('a-frame-cabin-plan.pdf');
 }
@@ -838,6 +932,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
 }
 
 function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, loftOffsetY, unit }: { title: string; areaLabel: string; width: number; length: number; loftWidth: number; loftLength: number; loftOffsetY: number; unit: UnitSystem }) {
+  const hasPlan = width > 0.05 && length > 0.05;
   const outerX = 24;
   const outerY = 30;
   const maxDrawWidth = 312;
@@ -857,10 +952,16 @@ function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, lof
         <span>{areaLabel}</span>
       </div>
       <svg viewBox="0 0 360 230" className="plan-canvas" role="img" aria-label={`${title} floor plan`}>
-        <rect x={planX} y={planY} width={planFrame.drawWidth} height={planFrame.drawHeight} rx="16" fill="#f6ede1" stroke="#6f5134" strokeWidth="3" />
-        {loftWidth > 0 && loftLength > 0 ? <rect x={loftX} y={loftY} width={loftVisualWidth} height={loftVisualHeight} rx="10" fill="#cbb18f" fillOpacity="0.82" stroke="#7f5d3b" strokeDasharray="6 6" /> : null}
-        <text x="180" y="222" textAnchor="middle">Length {formatLength(length, unit)}</text>
-        <text x="14" y="118" transform="rotate(-90 14 118)" textAnchor="middle">Width {formatLength(width, unit)}</text>
+        {hasPlan ? (
+          <>
+            <rect x={planX} y={planY} width={planFrame.drawWidth} height={planFrame.drawHeight} rx="16" fill="#f6ede1" stroke="#6f5134" strokeWidth="3" />
+            {loftWidth > 0 && loftLength > 0 ? <rect x={loftX} y={loftY} width={loftVisualWidth} height={loftVisualHeight} rx="10" fill="#cbb18f" fillOpacity="0.82" stroke="#7f5d3b" strokeDasharray="6 6" /> : null}
+            <text x="180" y="222" textAnchor="middle">Length {formatLength(length, unit)}</text>
+            <text x="14" y="118" transform="rotate(-90 14 118)" textAnchor="middle">Width {formatLength(width, unit)}</text>
+          </>
+        ) : (
+          <text x="180" y="118" textAnchor="middle">No loft enabled</text>
+        )}
       </svg>
     </div>
   );
@@ -1433,7 +1534,7 @@ export default function App() {
           </section>
 
           <FloorPlan title="Ground floor plan" areaLabel={formatArea(groundArea, unitSystem)} width={inputs.groundWidth} length={inputs.groundLength} loftWidth={0} loftLength={0} loftOffsetY={0} unit={unitSystem} />
-          <FloorPlan title="Loft plan" areaLabel={inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'} width={inputs.groundWidth} length={inputs.groundLength} loftWidth={loftUsableWidth} loftLength={loftDeckLength} loftOffsetY={balconyMargin} unit={unitSystem} />
+          <FloorPlan title="Loft plan" areaLabel={inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'} width={inputs.includeLoft ? loftUsableWidth : 0} length={inputs.includeLoft ? loftDeckLength : 0} loftWidth={0} loftLength={0} loftOffsetY={0} unit={unitSystem} />
           <AnchorPlan length={inputs.groundLength} width={inputs.groundWidth} anchorPoints={anchorPoints} anchorSpacingX={widthAxisGrid.spacing} anchorSpacingY={floorAxisGrid.spacing} unit={unitSystem} />
         </aside>
       </div>
