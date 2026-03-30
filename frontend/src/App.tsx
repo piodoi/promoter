@@ -28,6 +28,7 @@ type SliderOffsets = {
   loftFloorHeight: number;
   rafterSpacing: number;
   glazingRatio: number;
+  ladderPosition: number;
 };
 
 type SectionRule = {
@@ -96,6 +97,17 @@ type AdjustmentSliderProps = {
   onSliderChange: (value: number) => void;
 };
 
+type RangeSliderProps = {
+  label: string;
+  valueLabel: string;
+  helper: string;
+  sliderValue: number;
+  min: number;
+  max: number;
+  step?: number;
+  onSliderChange: (value: number) => void;
+};
+
 type DragState = {
   active: boolean;
   lastX: number;
@@ -152,6 +164,7 @@ const defaultSliderOffsets: SliderOffsets = {
   loftFloorHeight: 0,
   rafterSpacing: 0,
   glazingRatio: 0,
+  ladderPosition: 67,
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -655,6 +668,21 @@ function AdjustmentSlider({ label, valueLabel, helper, sliderValue, onSliderChan
   );
 }
 
+function RangeSlider({ label, valueLabel, helper, sliderValue, min, max, step = 1, onSliderChange }: RangeSliderProps) {
+  return (
+    <div className="slider-card">
+      <div className="slider-meta">
+        <div>
+          <strong>{label}</strong>
+          <span>{helper}</span>
+        </div>
+        <strong>{valueLabel}</strong>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={sliderValue} onChange={(event) => onSliderChange(Number(event.target.value))} />
+    </div>
+  );
+}
+
 function rotatePoint(point: Point3D, yaw: number, pitch: number): Point3D {
   const cosYaw = Math.cos(yaw);
   const sinYaw = Math.sin(yaw);
@@ -931,7 +959,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
   );
 }
 
-function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, loftOffsetY, unit }: { title: string; areaLabel: string; width: number; length: number; loftWidth: number; loftLength: number; loftOffsetY: number; unit: UnitSystem }) {
+function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, loftOffsetY, openingLength, openingWidth, openingOffsetY, unit }: { title: string; areaLabel: string; width: number; length: number; loftWidth: number; loftLength: number; loftOffsetY: number; openingLength: number; openingWidth: number; openingOffsetY: number; unit: UnitSystem }) {
   const hasPlan = width > 0.05 && length > 0.05;
   const outerX = 24;
   const outerY = 30;
@@ -944,6 +972,10 @@ function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, lof
   const loftVisualHeight = loftWidth * planFrame.scale;
   const loftX = planX + (loftOffsetY * planFrame.scale);
   const loftY = planY + ((planFrame.drawHeight - loftVisualHeight) / 2);
+  const openingVisualWidth = openingLength * planFrame.scale;
+  const openingVisualHeight = openingWidth * planFrame.scale;
+  const openingX = planX + (openingOffsetY * planFrame.scale);
+  const openingY = planY + ((planFrame.drawHeight - openingVisualHeight) / 2);
 
   return (
     <div className="visual-card">
@@ -954,8 +986,17 @@ function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, lof
       <svg viewBox="0 0 360 230" className="plan-canvas" role="img" aria-label={`${title} floor plan`}>
         {hasPlan ? (
           <>
-            <rect x={planX} y={planY} width={planFrame.drawWidth} height={planFrame.drawHeight} rx="16" fill="#f6ede1" stroke="#6f5134" strokeWidth="3" />
-            {loftWidth > 0 && loftLength > 0 ? <rect x={loftX} y={loftY} width={loftVisualWidth} height={loftVisualHeight} rx="10" fill="#cbb18f" fillOpacity="0.82" stroke="#7f5d3b" strokeDasharray="6 6" /> : null}
+            <rect x={planX} y={planY} width={planFrame.drawWidth} height={planFrame.drawHeight} fill="#f6ede1" stroke="#6f5134" strokeWidth="3" />
+            {loftWidth > 0 && loftLength > 0 ? <rect x={loftX} y={loftY} width={loftVisualWidth} height={loftVisualHeight} fill="none" stroke="#7f5d3b" strokeWidth="2" strokeDasharray="6 6" /> : null}
+            {openingLength > 0 && openingWidth > 0 ? (
+              <>
+                <rect x={openingX} y={openingY} width={openingVisualWidth} height={openingVisualHeight} fill="#fffaf0" stroke="#1f5f75" strokeWidth="2" strokeDasharray="6 4" />
+                <text x={openingX + (openingVisualWidth / 2)} y={openingY + (openingVisualHeight / 2) + 3} textAnchor="middle" fontSize="9">Ladder</text>
+              </>
+            ) : null}
+            {loftWidth > 0 && loftLength > 0 ? (
+              <text x="180" y="18" textAnchor="middle" fontSize="10">Headroom width {formatLength(loftWidth, unit)} (- - - -)</text>
+            ) : null}
             <text x="180" y="222" textAnchor="middle">Length {formatLength(length, unit)}</text>
             <text x="14" y="118" transform="rotate(-90 14 118)" textAnchor="middle">Width {formatLength(width, unit)}</text>
           </>
@@ -983,7 +1024,7 @@ function AnchorPlan({ length, width, anchorPoints, anchorSpacingX, anchorSpacing
         <span>{anchorPoints.length} anchors</span>
       </div>
       <svg viewBox="0 0 360 230" className="plan-canvas" role="img" aria-label="Ground anchor layout">
-        <rect x={planX} y={planY} width={planFrame.drawWidth} height={planFrame.drawHeight} rx="14" fill="#f3eadf" stroke="#5c4430" strokeWidth="3" />
+        <rect x={planX} y={planY} width={planFrame.drawWidth} height={planFrame.drawHeight} fill="#f3eadf" stroke="#5c4430" strokeWidth="3" />
         {anchorPoints.map((anchorPoint, index) => {
           const x = planX + ((length > 0 ? anchorPoint.y / length : 0) * planFrame.drawWidth);
           const y = planY + ((width > 0 ? anchorPoint.x / width : 0) * planFrame.drawHeight);
@@ -1056,6 +1097,11 @@ export default function App() {
     : 0;
   const loftDeckLength = inputs.includeLoft ? Math.max(inputs.groundLength - (balconyMargin * 2), 0.6) : 0;
   const loftArea = loftUsableWidth * loftDeckLength;
+  const ladderOpeningLength = inputs.includeLoft ? clamp(inputs.groundLength * 0.12, 0.75, Math.min(1.4, Math.max(loftDeckLength - 0.2, 0.75))) : 0;
+  const ladderOpeningWidth = inputs.includeLoft ? clamp(loftUsableWidth * 0.26, 0.65, Math.min(1.05, Math.max(loftUsableWidth - 0.2, 0.65))) : 0;
+  const ladderOpeningOffset = inputs.includeLoft
+    ? Math.max(0, (loftDeckLength - ladderOpeningLength) * (sliderOffsets.ladderPosition / 100))
+    : 0;
   const roofSurfaceArea = 2 * rafterLength * inputs.groundLength;
   const sideWallArea = 2 * inputs.groundLength * sideWallHeight;
   const endWallArea = ((inputs.groundWidth * sideWallHeight) + (0.5 * inputs.groundWidth * roofRise)) * 2;
@@ -1304,6 +1350,18 @@ export default function App() {
                   onSliderChange={(value) => setSliderOffsets({ ...sliderOffsets, loftFloorHeight: value })}
                 />
               ) : null}
+              {inputs.includeLoft ? (
+                <RangeSlider
+                  label="Ladder opening position"
+                  valueLabel={`${formatValue(sliderOffsets.ladderPosition, 0)}%`}
+                  helper="Moves the ladder opening along the loft length. Default is in the right third."
+                  sliderValue={sliderOffsets.ladderPosition}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onSliderChange={(value) => setSliderOffsets({ ...sliderOffsets, ladderPosition: value })}
+                />
+              ) : null}
               <AdjustmentSlider
                 label="Rafter spacing"
                 valueLabel={formatLength(rafterSpacing, unitSystem)}
@@ -1533,8 +1591,8 @@ export default function App() {
             </div>
           </section>
 
-          <FloorPlan title="Ground floor plan" areaLabel={formatArea(groundArea, unitSystem)} width={inputs.groundWidth} length={inputs.groundLength} loftWidth={0} loftLength={0} loftOffsetY={0} unit={unitSystem} />
-          <FloorPlan title="Loft plan" areaLabel={inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'} width={inputs.includeLoft ? loftUsableWidth : 0} length={inputs.includeLoft ? loftDeckLength : 0} loftWidth={0} loftLength={0} loftOffsetY={0} unit={unitSystem} />
+          <FloorPlan title="Ground floor plan" areaLabel={formatArea(groundArea, unitSystem)} width={inputs.groundWidth} length={inputs.groundLength} loftWidth={0} loftLength={0} loftOffsetY={0} openingLength={ladderOpeningLength} openingWidth={ladderOpeningWidth} openingOffsetY={balconyMargin + ladderOpeningOffset} unit={unitSystem} />
+          <FloorPlan title="Loft plan" areaLabel={inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'} width={inputs.includeLoft ? loftDeckWidth : 0} length={inputs.includeLoft ? loftDeckLength : 0} loftWidth={inputs.includeLoft ? loftUsableWidth : 0} loftLength={inputs.includeLoft ? loftDeckLength : 0} loftOffsetY={0} openingLength={inputs.includeLoft ? ladderOpeningLength : 0} openingWidth={inputs.includeLoft ? ladderOpeningWidth : 0} openingOffsetY={inputs.includeLoft ? ladderOpeningOffset : 0} unit={unitSystem} />
           <AnchorPlan length={inputs.groundLength} width={inputs.groundWidth} anchorPoints={anchorPoints} anchorSpacingX={widthAxisGrid.spacing} anchorSpacingY={floorAxisGrid.spacing} unit={unitSystem} />
         </aside>
       </div>
