@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^Set-Location \"c:\\\\Users\\\\Pio Doi\\\\saspromoter\\\\frontend\"; npm run build$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

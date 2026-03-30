@@ -1,13 +1,19 @@
 # promoter
 
-`promoter` is a companion app for compliant marketing operations.
+`promoter` now ships as an A-frame cabin planning tool with the original promoter workflow preserved behind a hidden admin tab at the bottom of the frontend.
 
-It uses the same general stack as the main app:
-- FastAPI backend
-- React + Vite + TypeScript frontend
-- Docker + nginx deployment boilerplate
+Main app scope:
+- A-frame and near A-frame geometry planning
+- Metric and imperial inputs with metric as the default
+- Loft area estimation from downstairs footprint, height, loft level, and headroom target
+- Roof, side wall, end wall, glass, and wood panel takeoffs
+- Timber section guidance for the requested rafter span and spacing
+- Ground anchor spacing layout and simple floor-plan generation
+- Simple 3D shell preview for quick proportion checks
+- PDF report export and DXF plan export for the current layout
+- Optional material pricing for shell estimates
 
-Safe scope only:
+Preserved admin scope:
 - Campaign briefs
 - AI-assisted marketing copy generation
 - Directory submission planning and tracking
@@ -15,11 +21,10 @@ Safe scope only:
 - Channel notes for approved API-based posting later
 - GitHub OAuth-based model access for draft generation
 
-Not included:
-- Screen-driving third-party websites
-- Automated posting to personal social accounts
-- Credential replay against external services
-- Bulk unsolicited submission automation
+Stack:
+- FastAPI backend
+- React + Vite + TypeScript frontend
+- Docker + nginx deployment boilerplate
 
 ## Local run
 

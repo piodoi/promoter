@@ -1,3 +1,3 @@
-cd .\promoter\frontend\
+cd .\frontend\
 npm run dev
 pause
