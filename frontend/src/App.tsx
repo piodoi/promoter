@@ -114,6 +114,9 @@ type ProjectedPoint = {
   z: number;
 };
 
+const PREVIEW_CENTER_X = 210;
+const PREVIEW_CENTER_Y = 176;
+
 const METERS_PER_FOOT = 0.3048;
 const SQM_PER_SQFT = 0.09290304;
 const MM_PER_INCH = 25.4;
@@ -572,20 +575,21 @@ function rotatePoint(point: Point3D, yaw: number, pitch: number): Point3D {
   return { x: xzX, y: yzY, z: yzZ };
 }
 
-function projectPoint(point: Point3D, yaw: number, pitch: number): ProjectedPoint {
+function projectPoint(point: Point3D, yaw: number, pitch: number, cameraDistance: number): ProjectedPoint {
   const rotated = rotatePoint(point, yaw, pitch);
-  const perspective = 250 / (rotated.z + 7);
+  const safeDistance = Math.max(cameraDistance, 1);
+  const perspective = safeDistance / Math.max(rotated.z + safeDistance, safeDistance * 0.45);
   return {
-    x: 210 + (rotated.x * perspective * 20),
-    y: 186 - (rotated.y * perspective * 20),
+    x: PREVIEW_CENTER_X + (rotated.x * perspective * 18),
+    y: PREVIEW_CENTER_Y - (rotated.y * perspective * 18),
     z: rotated.z,
   };
 }
 
 function scaleProjectedPoint(point: ProjectedPoint, scale: number): ProjectedPoint {
   return {
-    x: 210 + ((point.x - 210) * scale),
-    y: 160 + ((point.y - 160) * scale),
+    x: PREVIEW_CENTER_X + ((point.x - PREVIEW_CENTER_X) * scale),
+    y: PREVIEW_CENTER_Y + ((point.y - PREVIEW_CENTER_Y) * scale),
     z: point.z,
   };
 }
@@ -594,10 +598,10 @@ function polygonPoints(points: ProjectedPoint[]) {
   return points.map((point) => `${point.x},${point.y}`).join(' ');
 }
 
-function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLength, glazingRatio, loftFloorHeight, loftDeckWidth, loftDeckLength, balconyMargin, includeLoft }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingRatio: number; loftFloorHeight: number; loftDeckWidth: number; loftDeckLength: number; balconyMargin: number; includeLoft: boolean }) {
+function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLength, glazingRatio, loftFloorHeight, loftDeckWidth, loftDeckLength, balconyMargin, includeLoft, frameCount, actualSpacing, includeConcreteSlab }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingRatio: number; loftFloorHeight: number; loftDeckWidth: number; loftDeckLength: number; balconyMargin: number; includeLoft: boolean; frameCount: number; actualSpacing: number; includeConcreteSlab: boolean }) {
   const defaultYaw = -0.72;
   const defaultPitch = 0.28;
-  const defaultZoom = 1;
+  const defaultZoom = 16;
   const [yaw, setYaw] = useState(defaultYaw);
   const [pitch, setPitch] = useState(defaultPitch);
   const [zoom, setZoom] = useState(defaultZoom);
@@ -621,8 +625,11 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
   const loftRearZ = halfLength - balconyMargin;
   const glazingInsetX = halfWidth * clamp(0.54 - (glazingRatio * 1.05), 0.08, 0.46);
   const glazingInsetY = totalHeight * clamp(0.48 - (glazingRatio * 0.55), 0.08, 0.32);
-  const fitScale = clamp(1.6 / Math.max(width, cabinLength, totalHeight, 2.8), 0.16, 0.5);
-  const sceneScale = fitScale * zoom * 0.12;
+  const maxDimension = Math.max(width, cabinLength, totalHeight, 2.8);
+  const cameraDistance = (maxDimension * 4.6) + 18;
+  const fitScale = clamp(2.4 / maxDimension, 0.22, 0.72);
+  const sceneScale = fitScale * zoom * 0.32;
+  const projectScenePoint = (point: Point3D) => scaleProjectedPoint(projectPoint(point, yaw, pitch, cameraDistance), sceneScale);
 
   const faces = [
     {
@@ -646,7 +653,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
       points: [frontLeftBottom, frontLeftKnee, frontApex, frontRightKnee, frontRightBottom],
     },
   ].map((face) => {
-    const projected = face.points.map((point) => scaleProjectedPoint(projectPoint(point, yaw, pitch), sceneScale));
+    const projected = face.points.map((point) => projectScenePoint(point));
     const depth = projected.reduce((sum, point) => sum + point.z, 0) / projected.length;
     return { ...face, projected, depth };
   }).sort((left, right) => left.depth - right.depth);
@@ -657,7 +664,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
     { x: 0, y: totalHeight - glazingInsetY, z: -halfLength + 0.01 },
     { x: halfWidth - glazingInsetX * 0.82, y: sideWallHeight + 0.15, z: -halfLength + 0.01 },
     { x: halfWidth - glazingInsetX, y: 0.2, z: -halfLength + 0.01 },
-  ].map((point) => scaleProjectedPoint(projectPoint(point, yaw, pitch), sceneScale));
+  ].map((point) => projectScenePoint(point));
 
   const loftPolygon = includeLoft && loftDeckWidth > 0 && loftDeckLength > 0.2
     ? [
@@ -665,7 +672,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
       { x: loftHalfWidth, y: loftFloorHeight, z: loftFrontZ },
       { x: loftHalfWidth, y: loftFloorHeight, z: loftRearZ },
       { x: -loftHalfWidth, y: loftFloorHeight, z: loftRearZ },
-    ].map((point) => scaleProjectedPoint(projectPoint(point, yaw, pitch), sceneScale))
+    ].map((point) => projectScenePoint(point))
     : null;
 
   const loftEdgeLines = includeLoft && loftDeckWidth > 0 && loftDeckLength > 0.2
@@ -682,7 +689,35 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
         { x: -loftHalfWidth, y: loftFloorHeight, z: loftRearZ },
         { x: loftHalfWidth, y: loftFloorHeight, z: loftRearZ },
       ],
-    ].map((line) => line.map((point) => scaleProjectedPoint(projectPoint(point, yaw, pitch), sceneScale)))
+    ].map((line) => line.map((point) => projectScenePoint(point)))
+    : [];
+
+  const frameZPositions = Array.from({ length: frameCount }, (_, index) => (-halfLength + (actualSpacing * index)));
+  const rafterLines = frameZPositions.flatMap((zPosition) => {
+    const leftBase = { x: -halfWidth, y: 0, z: zPosition };
+    const leftKnee = { x: -halfWidth, y: sideWallHeight, z: zPosition };
+    const rightBase = { x: halfWidth, y: 0, z: zPosition };
+    const rightKnee = { x: halfWidth, y: sideWallHeight, z: zPosition };
+    const apex = { x: 0, y: totalHeight, z: zPosition };
+
+    return [
+      [leftBase, leftKnee],
+      [leftKnee, apex],
+      [apex, rightKnee],
+      [rightKnee, rightBase],
+      [leftBase, rightBase],
+    ].map((line) => line.map((point) => projectScenePoint(point)));
+  });
+
+  const floorStructureLines = !includeConcreteSlab
+    ? [
+      [frontLeftBottom, backLeftBottom],
+      [frontRightBottom, backRightBottom],
+      ...frameZPositions.map((zPosition) => [
+        { x: -halfWidth, y: 0.02, z: zPosition },
+        { x: halfWidth, y: 0.02, z: zPosition },
+      ]),
+    ].map((line) => line.map((point) => projectScenePoint(point)))
     : [];
 
   function handlePointerDown(event: React.PointerEvent<SVGSVGElement>) {
@@ -707,7 +742,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
   }
 
   function stepZoom(delta: number) {
-    setZoom((current) => clamp(current + delta, 0.25, 6));
+    setZoom((current) => clamp(current + delta, 4, 16));
   }
 
   return (
@@ -715,10 +750,10 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
       <div className="preview-header-actions">
         <span className="panel-note">Drag to orbit. Use the buttons to zoom in and out.</span>
         <div className="preview-button-group">
-          <button type="button" className="ghost-button" onClick={() => stepZoom(-0.25)} aria-label="Zoom out preview">
+          <button type="button" className="ghost-button" onClick={() => stepZoom(-1)} aria-label="Zoom out preview">
             -
           </button>
-          <button type="button" className="ghost-button" onClick={() => stepZoom(0.25)} aria-label="Zoom in preview">
+          <button type="button" className="ghost-button" onClick={() => stepZoom(1)} aria-label="Zoom in preview">
             +
           </button>
           <button type="button" className="ghost-button" onClick={() => { setYaw(defaultYaw); setPitch(defaultPitch); setZoom(defaultZoom); }}>
@@ -740,6 +775,30 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
         {faces.map((face, index) => (
           <polygon key={`${face.fill}-${index}`} points={polygonPoints(face.projected)} fill={face.fill} stroke={face.stroke} strokeWidth="2.4" />
         ))}
+        {floorStructureLines.map((line, index) => (
+          <line
+            key={`floor-line-${index}`}
+            x1={line[0].x}
+            y1={line[0].y}
+            x2={line[1].x}
+            y2={line[1].y}
+            stroke="#5f452f"
+            strokeWidth="1.5"
+            opacity="0.9"
+          />
+        ))}
+        {rafterLines.map((line, index) => (
+          <line
+            key={`rafter-line-${index}`}
+            x1={line[0].x}
+            y1={line[0].y}
+            x2={line[1].x}
+            y2={line[1].y}
+            stroke="#f8e0b8"
+            strokeWidth="1.35"
+            opacity="0.95"
+          />
+        ))}
         {loftPolygon ? <polygon points={polygonPoints(loftPolygon)} fill="rgba(241, 214, 161, 0.82)" stroke="#7f5d3b" strokeWidth="2" /> : null}
         {loftEdgeLines.map((line, index) => (
           <line
@@ -758,7 +817,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
         <text x="156" y="284">Length {formatValue(cabinLength, 2)}</text>
         <text x="290" y="284">Height {formatValue(totalHeight, 2)}</text>
         <text x="20" y="302">Roof rise {formatValue(roofRise, 2)}</text>
-        <text x="170" y="302">Zoom {formatValue(zoom, 2)}x</text>
+        <text x="150" y="302">Frames {frameCount}</text>
       </svg>
     </div>
   );
@@ -1332,6 +1391,9 @@ export default function App() {
               loftDeckLength={loftDeckLength}
               balconyMargin={balconyMargin}
               includeLoft={inputs.includeLoft}
+              frameCount={frameCount}
+              actualSpacing={actualSpacing}
+              includeConcreteSlab={inputs.includeConcreteSlab}
             />
             <div className="preview-stats">
               <div>
