@@ -81,3 +81,17 @@ Production:
 cd promoter
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
+
+## Temporary Shareable Deploy
+
+The cabin planner frontend can be published as a static site on Netlify for quick sharing.
+
+Steps:
+- Push the repo to GitHub.
+- Create a new Netlify site from that repo.
+- Netlify will pick up [netlify.toml](netlify.toml) automatically.
+- The build uses `frontend` as the base directory and publishes `frontend/dist`.
+
+Note:
+- This static deploy is suitable for the cabin planner UI and exports.
+- The hidden admin workflow still depends on the FastAPI backend and will not be functional unless you also deploy the backend separately.

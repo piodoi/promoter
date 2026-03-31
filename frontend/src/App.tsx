@@ -997,9 +997,11 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
     : [];
 
   const ladderTopZ = includeBalcony
-    ? loftFrontZ + Math.max(actualSpacing, 0.2)
+    ? loftFrontZ
     : loftFrontZ + Math.min(Math.max(ladderOffset + ladderLength, 0.2), Math.max(loftDeckLength, 0.2));
-  const ladderBaseZ = ladderTopZ - 0.2;
+  const ladderBaseZ = includeBalcony
+    ? ladderTopZ - Math.max(actualSpacing, 0.2)
+    : ladderTopZ - 0.2;
   const ladderLines = includeLoft
     ? [
       [
@@ -1343,6 +1345,9 @@ export default function App() {
         ladderOpeningMaxOffset,
       ))
     : 0;
+  const groundLadderMarkerOffset = inputs.includeBalcony
+    ? Math.max(balconyMargin - actualSpacing, 0)
+    : balconyMargin + ladderOpeningOffset;
   const loftHoleLength = inputs.includeBalcony ? 0 : ladderOpeningLength;
   const loftHoleWidth = inputs.includeBalcony ? 0 : ladderOpeningWidth;
   const railingSectionArea = 0.045 * 0.095;
@@ -1860,7 +1865,7 @@ export default function App() {
             </div>
           </section>
 
-          <FloorPlan title="Ground floor plan" areaLabel={formatArea(inputs.groundWidth * groundFloorLength, unitSystem)} width={inputs.groundWidth} length={groundFloorLength} loftWidth={groundHeadspaceWidth} loftLength={enclosedShellLength} loftOffsetY={frontTerraceDepth} openingLength={ladderOpeningLength} openingWidth={ladderOpeningWidth} openingOffsetY={frontTerraceDepth + balconyMargin + ladderOpeningOffset} openingLabel={inputs.includeBalcony ? 'Ladder mark' : 'Ladder'} openingMarkerOnly={inputs.includeBalcony} unit={unitSystem} />
+          <FloorPlan title="Ground floor plan" areaLabel={formatArea(inputs.groundWidth * groundFloorLength, unitSystem)} width={inputs.groundWidth} length={groundFloorLength} loftWidth={groundHeadspaceWidth} loftLength={enclosedShellLength} loftOffsetY={frontTerraceDepth} openingLength={ladderOpeningLength} openingWidth={ladderOpeningWidth} openingOffsetY={frontTerraceDepth + groundLadderMarkerOffset} openingLabel={inputs.includeBalcony ? 'Ladder mark' : 'Ladder'} openingMarkerOnly={inputs.includeBalcony} unit={unitSystem} />
           <FloorPlan title="Loft plan" areaLabel={inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'} width={inputs.includeLoft ? loftDeckWidth : 0} length={inputs.includeLoft ? loftDeckLength : 0} loftWidth={inputs.includeLoft ? loftHeadspaceWidth : 0} loftLength={inputs.includeLoft ? loftDeckLength : 0} loftOffsetY={0} openingLength={inputs.includeLoft ? loftHoleLength : 0} openingWidth={inputs.includeLoft ? loftHoleWidth : 0} openingOffsetY={inputs.includeLoft ? ladderOpeningOffset : 0} openingLabel="Ladder" unit={unitSystem} />
           <AnchorPlan length={inputs.groundLength} width={inputs.groundWidth} anchorPoints={anchorPoints} anchorSpacingX={widthAxisGrid.spacing} anchorSpacingY={floorAxisGrid.spacing} unit={unitSystem} />
         </aside>
