@@ -29,6 +29,7 @@ type SliderOffsets = {
   rafterSpacing: number;
   glazingRatio: number;
   ladderPosition: number;
+  frontTerraceBays: number;
 };
 
 type SectionRule = {
@@ -48,6 +49,8 @@ type PlannerMetrics = {
   rafterSpacing: number;
   anchorSpacingX: number;
   anchorSpacingY: number;
+  glazingStage: number;
+  glazingLabel: string;
   glazingRatio: number;
   roofRise: number;
   rafterLength: number;
@@ -119,6 +122,10 @@ type Point3D = {
   y: number;
   z: number;
 };
+type Point2D = {
+  x: number;
+  y: number;
+};
 
 type ProjectedPoint = {
   x: number;
@@ -143,13 +150,13 @@ const SECTION_RULES: SectionRule[] = [
 ];
 
 const defaultInputs: PlannerInputs = {
-  groundWidth: 8,
-  groundLength: 9,
+  groundWidth: 4,
+  groundLength: 6.4,
   includeLoft: true,
   includeBalcony: false,
   includeSideWall: false,
   includeConcreteSlab: false,
-  minimumLoftHeadroom: 1.4,
+  minimumLoftHeadroom: 1.8,
   availableWoodWidth: 0.045,
   availableWoodDepth: 0.195,
   availableWoodLength: 4.8,
@@ -163,8 +170,9 @@ const defaultSliderOffsets: SliderOffsets = {
   sideWallHeight: 0,
   loftFloorHeight: 0,
   rafterSpacing: 0,
-  glazingRatio: 0,
+  glazingRatio: 2,
   ladderPosition: 67,
+  frontTerraceBays: 0,
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -581,7 +589,7 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
   addPdfAnchorPlan(doc, 14, y + 78, inputs.groundWidth, inputs.groundLength, metrics.anchorPoints, metrics.anchorSpacingX, metrics.anchorSpacingY, unitSystem);
   doc.setFontSize(9);
   doc.text(`Rafter spacing ${formatLength(metrics.actualSpacing, unitSystem)} | Roof pitch ${formatValue(metrics.roofPitch, 1)} deg`, 105, y + 134);
-  doc.text(`Facade glazing ${formatValue(metrics.glazingRatio * 100, 0)}%`, 105, y + 140);
+  doc.text(`Facade glazing ${metrics.glazingLabel}`, 105, y + 140);
 
   doc.addPage();
   doc.setFontSize(20);
@@ -734,7 +742,119 @@ function getPlanFrame(length: number, width: number, maxDrawWidth: number, maxDr
   };
 }
 
-function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLength, glazingRatio, loftFloorHeight, loftDeckWidth, loftDeckLength, balconyMargin, includeLoft, frameCount, actualSpacing, includeConcreteSlab }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingRatio: number; loftFloorHeight: number; loftDeckWidth: number; loftDeckLength: number; balconyMargin: number; includeLoft: boolean; frameCount: number; actualSpacing: number; includeConcreteSlab: boolean }) {
+function polygonArea(points: Point2D[]) {
+  let area = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    area += (current.x * next.y) - (next.x * current.y);
+  }
+  return Math.abs(area) / 2;
+}
+
+function isFaceVisible(points: Point3D[], yaw: number, pitch: number, cameraDistance: number) {
+  if (points.length < 3) {
+    return false;
+  }
+
+  const [first, second, third] = points.slice(0, 3).map((point) => rotatePoint(point, yaw, pitch));
+  const edgeA = { x: second.x - first.x, y: second.y - first.y, z: second.z - first.z };
+  const edgeB = { x: third.x - first.x, y: third.y - first.y, z: third.z - first.z };
+  const normal = {
+    x: (edgeA.y * edgeB.z) - (edgeA.z * edgeB.y),
+    y: (edgeA.z * edgeB.x) - (edgeA.x * edgeB.z),
+    z: (edgeA.x * edgeB.y) - (edgeA.y * edgeB.x),
+  };
+  const center = points.reduce((sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y, z: sum.z + point.z }), { x: 0, y: 0, z: 0 });
+  const rotatedCenter = rotatePoint({ x: center.x / points.length, y: center.y / points.length, z: center.z / points.length }, yaw, pitch);
+  const toCamera = { x: -rotatedCenter.x, y: -rotatedCenter.y, z: -cameraDistance - rotatedCenter.z };
+
+  return ((normal.x * toCamera.x) + (normal.y * toCamera.y) + (normal.z * toCamera.z)) > 0;
+}
+
+function buildGlazingPreset(stage: number, width: number, totalHeight: number, sideWallHeight: number) {
+  const normalizedStage = clamp(Math.round(stage), 0, 6);
+  const halfWidth = width / 2;
+  const doorWidth = clamp(width * 0.22, 0.8, 1.0);
+  const doorHeight = clamp(Math.min(2.05, totalHeight - 0.35), 1.85, 2.05);
+  const eyeSize = 0.18;
+  const eyeCenterY = Math.min(1.52, doorHeight - 0.28);
+  const jambInset = 0.08;
+  const frontWallPolygon = [
+    { x: -halfWidth, y: 0 },
+    { x: -halfWidth, y: sideWallHeight },
+    { x: 0, y: totalHeight },
+    { x: halfWidth, y: sideWallHeight },
+    { x: halfWidth, y: 0 },
+  ];
+  const frontLoftTriangle = [
+    { x: -halfWidth, y: sideWallHeight },
+    { x: 0, y: totalHeight - 0.02 },
+    { x: halfWidth, y: sideWallHeight },
+  ];
+  const backLoftTriangle = frontLoftTriangle;
+  const frontPolygons: Point2D[][] = [];
+  const backPolygons: Point2D[][] = [];
+  const doorGlassHeight = normalizedStage === 1 ? doorHeight * 0.66 : doorHeight;
+  const doorGlassBottom = normalizedStage === 1 ? doorHeight - doorGlassHeight : 0;
+
+  if (normalizedStage === 0) {
+    frontPolygons.push([
+      { x: -(eyeSize / 2), y: eyeCenterY - (eyeSize / 2) },
+      { x: -(eyeSize / 2), y: eyeCenterY + (eyeSize / 2) },
+      { x: eyeSize / 2, y: eyeCenterY + (eyeSize / 2) },
+      { x: eyeSize / 2, y: eyeCenterY - (eyeSize / 2) },
+    ]);
+  }
+
+  if (normalizedStage >= 1) {
+    frontPolygons.push([
+      { x: -(doorWidth / 2), y: doorGlassBottom },
+      { x: -(doorWidth / 2), y: doorHeight },
+      { x: doorWidth / 2, y: doorHeight },
+      { x: doorWidth / 2, y: doorGlassBottom },
+    ]);
+  }
+  if (normalizedStage >= 3) {
+    frontPolygons.push(frontLoftTriangle);
+  }
+  if (normalizedStage >= 4) {
+    frontPolygons.splice(0, frontPolygons.length, frontWallPolygon);
+  }
+  if (normalizedStage >= 5) {
+    backPolygons.push(backLoftTriangle);
+  }
+  if (normalizedStage >= 6) {
+    backPolygons.splice(0, backPolygons.length, frontWallPolygon);
+  }
+
+  const labels = [
+    'Door eye',
+    '2/3 glass door',
+    'Full glass door',
+    'Door plus full upper triangle',
+    'Full front glazing',
+    'Rear loft glazing',
+    'Front and rear full glazing',
+  ];
+
+  const glassArea = [...frontPolygons, ...backPolygons].reduce((sum, polygon) => sum + polygonArea(polygon), 0);
+  const totalEndWallArea = ((width * sideWallHeight) + (0.5 * width * Math.max(totalHeight - sideWallHeight, 0))) * 2;
+
+  return {
+    stage: normalizedStage,
+    label: labels[normalizedStage],
+    frontPolygons,
+    backPolygons,
+    glassArea,
+    ratio: totalEndWallArea > 0 ? glassArea / totalEndWallArea : 0,
+    doorHeight,
+    doorWidth,
+    doorInset: jambInset,
+  };
+}
+
+function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLength, glazingStage, loftFloorHeight, loftDeckWidth, loftDeckLength, balconyMargin, frontWallOffset, backWallOffset, includeLoft, includeBalcony, frameCount, actualSpacing, includeConcreteSlab, ladderOffset, ladderLength }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingStage: number; loftFloorHeight: number; loftDeckWidth: number; loftDeckLength: number; balconyMargin: number; frontWallOffset: number; backWallOffset: number; includeLoft: boolean; includeBalcony: boolean; frameCount: number; actualSpacing: number; includeConcreteSlab: boolean; ladderOffset: number; ladderLength: number }) {
   const defaultYaw = -0.72;
   const defaultPitch = 0.28;
   const defaultZoom = 16;
@@ -750,17 +870,29 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
   const backApex = { x: 0, y: totalHeight, z: halfLength };
   const frontLeftBottom = { x: -halfWidth, y: 0, z: -halfLength };
   const frontRightBottom = { x: halfWidth, y: 0, z: -halfLength };
-  const backLeftBottom = { x: -halfWidth, y: 0, z: halfLength };
-  const backRightBottom = { x: halfWidth, y: 0, z: halfLength };
+  const backFloorZ = halfLength - backWallOffset;
+  const backLeftBottom = { x: -halfWidth, y: 0, z: backFloorZ };
+  const backRightBottom = { x: halfWidth, y: 0, z: backFloorZ };
   const frontLeftKnee = { x: -halfWidth, y: sideWallHeight, z: -halfLength };
   const frontRightKnee = { x: halfWidth, y: sideWallHeight, z: -halfLength };
   const backLeftKnee = { x: -halfWidth, y: sideWallHeight, z: halfLength };
   const backRightKnee = { x: halfWidth, y: sideWallHeight, z: halfLength };
+  const frontWallZ = -halfLength + frontWallOffset;
+  const backWallZ = halfLength - backWallOffset;
+  const frontWallLeftBase = { x: -halfWidth, y: 0, z: frontWallZ };
+  const frontWallRightBase = { x: halfWidth, y: 0, z: frontWallZ };
+  const frontWallLeftKnee = { x: -halfWidth, y: sideWallHeight, z: frontWallZ };
+  const frontWallRightKnee = { x: halfWidth, y: sideWallHeight, z: frontWallZ };
+  const frontWallApex = { x: 0, y: totalHeight, z: frontWallZ };
+  const backWallLeftBase = { x: -halfWidth, y: 0, z: backWallZ };
+  const backWallRightBase = { x: halfWidth, y: 0, z: backWallZ };
+  const backWallLeftKnee = { x: -halfWidth, y: sideWallHeight, z: backWallZ };
+  const backWallRightKnee = { x: halfWidth, y: sideWallHeight, z: backWallZ };
+  const backWallApex = { x: 0, y: totalHeight, z: backWallZ };
   const loftHalfWidth = Math.max(loftDeckWidth / 2, 0.08);
-  const loftFrontZ = -halfLength + balconyMargin;
-  const loftRearZ = halfLength - balconyMargin;
-  const glazingInsetX = halfWidth * clamp(0.54 - (glazingRatio * 1.05), 0.08, 0.46);
-  const glazingInsetY = totalHeight * clamp(0.48 - (glazingRatio * 0.55), 0.08, 0.32);
+  const loftFrontZ = frontWallZ + balconyMargin;
+  const loftRearZ = backWallZ;
+  const glazingPreset = buildGlazingPreset(glazingStage, width, totalHeight, sideWallHeight);
   const maxDimension = Math.max(width, cabinLength, totalHeight, 2.8);
   const cameraDistance = (maxDimension * 4.6) + 18;
   const fitScale = clamp(2.4 / maxDimension, 0.22, 0.72);
@@ -786,7 +918,12 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
     {
       fill: '#d6bb93',
       stroke: '#6c4526',
-      points: [frontLeftBottom, frontLeftKnee, frontApex, frontRightKnee, frontRightBottom],
+      points: [frontWallLeftBase, frontWallLeftKnee, frontWallApex, frontWallRightKnee, frontWallRightBase],
+    },
+    {
+      fill: '#d9c6a5',
+      stroke: '#6c4526',
+      points: [backWallLeftBase, backWallLeftKnee, backWallApex, backWallRightKnee, backWallRightBase],
     },
   ].map((face) => {
     const projected = face.points.map((point) => projectScenePoint(point));
@@ -794,12 +931,26 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
     return { ...face, projected, depth };
   }).sort((left, right) => left.depth - right.depth);
 
-  const glazingPolygon = [
-    { x: -halfWidth + glazingInsetX, y: 0.2, z: -halfLength + 0.01 },
-    { x: -halfWidth + glazingInsetX * 0.82, y: sideWallHeight + 0.15, z: -halfLength + 0.01 },
-    { x: 0, y: totalHeight - glazingInsetY, z: -halfLength + 0.01 },
-    { x: halfWidth - glazingInsetX * 0.82, y: sideWallHeight + 0.15, z: -halfLength + 0.01 },
-    { x: halfWidth - glazingInsetX, y: 0.2, z: -halfLength + 0.01 },
+  const frontWoodFace = [frontWallLeftBase, frontWallLeftKnee, frontWallApex, frontWallRightKnee, frontWallRightBase].map((point) => projectScenePoint({ ...point, z: frontWallZ + 0.005 }));
+  const frontWallFace = [frontWallLeftBase, frontWallLeftKnee, frontWallApex, frontWallRightKnee, frontWallRightBase];
+  const backWallFace = [backWallLeftBase, backWallLeftKnee, backWallApex, backWallRightKnee, backWallRightBase];
+  const showFrontGlazing = isFaceVisible(frontWallFace, yaw, pitch, cameraDistance);
+  const showBackGlazing = isFaceVisible(backWallFace, yaw, pitch, cameraDistance);
+  const frontGlazingPolygons = glazingPreset.frontPolygons.map((polygon) => polygon.map((point) => projectScenePoint({ x: point.x, y: point.y, z: frontWallZ + 0.01 })));
+  const backGlazingPolygons = glazingPreset.backPolygons.map((polygon) => polygon.map((point) => projectScenePoint({ x: point.x, y: point.y, z: backWallZ + 0.01 })));
+
+  const doorPolygon = [
+    { x: -(glazingPreset.doorWidth / 2), y: 0, z: frontWallZ + 0.02 },
+    { x: -(glazingPreset.doorWidth / 2), y: glazingPreset.doorHeight, z: frontWallZ + 0.02 },
+    { x: glazingPreset.doorWidth / 2, y: glazingPreset.doorHeight, z: frontWallZ + 0.02 },
+    { x: glazingPreset.doorWidth / 2, y: 0, z: frontWallZ + 0.02 },
+  ].map((point) => projectScenePoint(point));
+
+  const doorGlassPolygon = [
+    { x: -(glazingPreset.doorWidth / 2) + glazingPreset.doorInset, y: glazingPreset.doorInset, z: frontWallZ + 0.025 },
+    { x: -(glazingPreset.doorWidth / 2) + glazingPreset.doorInset, y: glazingPreset.doorHeight - glazingPreset.doorInset, z: frontWallZ + 0.025 },
+    { x: (glazingPreset.doorWidth / 2) - glazingPreset.doorInset, y: glazingPreset.doorHeight - glazingPreset.doorInset, z: frontWallZ + 0.025 },
+    { x: (glazingPreset.doorWidth / 2) - glazingPreset.doorInset, y: glazingPreset.doorInset, z: frontWallZ + 0.025 },
   ].map((point) => projectScenePoint(point));
 
   const loftPolygon = includeLoft && loftDeckWidth > 0 && loftDeckLength > 0.2
@@ -824,6 +975,52 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
       [
         { x: -loftHalfWidth, y: loftFloorHeight, z: loftRearZ },
         { x: loftHalfWidth, y: loftFloorHeight, z: loftRearZ },
+      ],
+    ].map((line) => line.map((point) => projectScenePoint(point)))
+    : [];
+
+  const railingLines = includeLoft && includeBalcony && loftDeckWidth > 0 && loftDeckLength > 0.2
+    ? [
+      [
+        { x: -loftHalfWidth, y: loftFloorHeight + 0.92, z: loftFrontZ },
+        { x: loftHalfWidth, y: loftFloorHeight + 0.92, z: loftFrontZ },
+      ],
+      [
+        { x: -loftHalfWidth, y: loftFloorHeight, z: loftFrontZ },
+        { x: -loftHalfWidth, y: loftFloorHeight + 0.92, z: loftFrontZ },
+      ],
+      [
+        { x: loftHalfWidth, y: loftFloorHeight, z: loftFrontZ },
+        { x: loftHalfWidth, y: loftFloorHeight + 0.92, z: loftFrontZ },
+      ],
+    ].map((line) => line.map((point) => projectScenePoint(point)))
+    : [];
+
+  const ladderTopZ = includeBalcony
+    ? loftFrontZ + Math.max(actualSpacing, 0.2)
+    : loftFrontZ + Math.min(Math.max(ladderOffset + ladderLength, 0.2), Math.max(loftDeckLength, 0.2));
+  const ladderBaseZ = ladderTopZ - 0.2;
+  const ladderLines = includeLoft
+    ? [
+      [
+        { x: -0.22, y: 0, z: ladderBaseZ },
+        { x: -0.22, y: loftFloorHeight, z: ladderTopZ },
+      ],
+      [
+        { x: 0.22, y: 0, z: ladderBaseZ },
+        { x: 0.22, y: loftFloorHeight, z: ladderTopZ },
+      ],
+      [
+        { x: -0.22, y: loftFloorHeight * 0.3, z: ladderBaseZ + 0.06 },
+        { x: 0.22, y: loftFloorHeight * 0.3, z: ladderBaseZ + 0.12 },
+      ],
+      [
+        { x: -0.22, y: loftFloorHeight * 0.55, z: ladderBaseZ + 0.12 },
+        { x: 0.22, y: loftFloorHeight * 0.55, z: ladderBaseZ + 0.18 },
+      ],
+      [
+        { x: -0.22, y: loftFloorHeight * 0.8, z: ladderBaseZ + 0.18 },
+        { x: 0.22, y: loftFloorHeight * 0.8, z: ladderBaseZ + 0.24 },
       ],
     ].map((line) => line.map((point) => projectScenePoint(point)))
     : [];
@@ -935,7 +1132,34 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
             opacity="0.95"
           />
         ))}
+        {railingLines.map((line, index) => (
+          <line
+            key={`railing-line-${index}`}
+            x1={line[0].x}
+            y1={line[0].y}
+            x2={line[1].x}
+            y2={line[1].y}
+            stroke="#d8c4a2"
+            strokeWidth="1.8"
+            opacity="0.95"
+          />
+        ))}
+        {ladderLines.map((line, index) => (
+          <line
+            key={`ladder-line-${index}`}
+            x1={line[0].x}
+            y1={line[0].y}
+            x2={line[1].x}
+            y2={line[1].y}
+            stroke="#ecd6b4"
+            strokeWidth="1.6"
+            opacity="0.95"
+          />
+        ))}
+        <polygon points={polygonPoints(frontWoodFace)} fill="rgba(214, 187, 147, 0.88)" stroke="rgba(108, 69, 38, 0.35)" strokeWidth="1.2" />
         {loftPolygon ? <polygon points={polygonPoints(loftPolygon)} fill="rgba(241, 214, 161, 0.82)" stroke="#7f5d3b" strokeWidth="2" /> : null}
+        <polygon points={polygonPoints(doorPolygon)} fill="rgba(120, 86, 53, 0.22)" stroke="#2f1f14" strokeWidth="1.8" />
+        <polygon points={polygonPoints(doorGlassPolygon)} fill="none" stroke="rgba(47, 31, 20, 0.45)" strokeWidth="1.1" />
         {loftEdgeLines.map((line, index) => (
           <line
             key={`loft-line-${index}`}
@@ -948,7 +1172,12 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
             strokeDasharray={index < 2 ? '4 5' : undefined}
           />
         ))}
-        <polygon points={polygonPoints(glazingPolygon)} fill="rgba(124, 196, 216, 0.68)" stroke="#1f5f75" strokeWidth="2" />
+        {showBackGlazing ? backGlazingPolygons.map((polygon, index) => (
+          <polygon key={`back-glass-${index}`} points={polygonPoints(polygon)} fill="rgba(124, 196, 216, 0.34)" stroke="#1f5f75" strokeWidth="1.4" />
+        )) : null}
+        {showFrontGlazing ? frontGlazingPolygons.map((polygon, index) => (
+          <polygon key={`front-glass-${index}`} points={polygonPoints(polygon)} fill="rgba(124, 196, 216, 0.68)" stroke="#1f5f75" strokeWidth="2" />
+        )) : null}
         <text x="20" y="284">Width {formatValue(width, 2)}</text>
         <text x="156" y="284">Length {formatValue(cabinLength, 2)}</text>
         <text x="290" y="284">Height {formatValue(totalHeight, 2)}</text>
@@ -959,7 +1188,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
   );
 }
 
-function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, loftOffsetY, openingLength, openingWidth, openingOffsetY, unit }: { title: string; areaLabel: string; width: number; length: number; loftWidth: number; loftLength: number; loftOffsetY: number; openingLength: number; openingWidth: number; openingOffsetY: number; unit: UnitSystem }) {
+function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, loftOffsetY, openingLength, openingWidth, openingOffsetY, openingLabel, openingMarkerOnly, unit }: { title: string; areaLabel: string; width: number; length: number; loftWidth: number; loftLength: number; loftOffsetY: number; openingLength: number; openingWidth: number; openingOffsetY: number; openingLabel?: string; openingMarkerOnly?: boolean; unit: UnitSystem }) {
   const hasPlan = width > 0.05 && length > 0.05;
   const outerX = 24;
   const outerY = 30;
@@ -990,12 +1219,12 @@ function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, lof
             {loftWidth > 0 && loftLength > 0 ? <rect x={loftX} y={loftY} width={loftVisualWidth} height={loftVisualHeight} fill="none" stroke="#7f5d3b" strokeWidth="2" strokeDasharray="6 6" /> : null}
             {openingLength > 0 && openingWidth > 0 ? (
               <>
-                <rect x={openingX} y={openingY} width={openingVisualWidth} height={openingVisualHeight} fill="#fffaf0" stroke="#1f5f75" strokeWidth="2" strokeDasharray="6 4" />
-                <text x={openingX + (openingVisualWidth / 2)} y={openingY + (openingVisualHeight / 2) + 3} textAnchor="middle" fontSize="9">Ladder</text>
+                <rect x={openingX} y={openingY} width={openingVisualWidth} height={openingVisualHeight} fill={openingMarkerOnly ? "none" : "#fffaf0"} stroke="#1f5f75" strokeWidth="2" strokeDasharray="6 4" />
+                <text x={openingX + (openingVisualWidth / 2)} y={openingY + (openingVisualHeight / 2) + 3} textAnchor="middle" fontSize="9">{openingLabel ?? 'Ladder'}</text>
               </>
             ) : null}
             {loftWidth > 0 && loftLength > 0 ? (
-              <text x="180" y="18" textAnchor="middle" fontSize="10">Headroom width {formatLength(loftWidth, unit)} (- - - -)</text>
+              <text x="180" y="18" textAnchor="middle" fontSize="10">1.7 m headspace width {formatLength(loftWidth, unit)} (- - - -)</text>
             ) : null}
             <text x="180" y="222" textAnchor="middle">Length {formatLength(length, unit)}</text>
             <text x="14" y="118" transform="rotate(-90 14 118)" textAnchor="middle">Width {formatLength(width, unit)}</text>
@@ -1057,14 +1286,11 @@ export default function App() {
     ? clamp(inputs.groundWidth * 0.12, 0, 1.4)
     : clamp(inputs.groundWidth * 0.04, 0, 0.45))
     : 0;
-  const recommendedLoftFloorHeight = inputs.includeLoft
-    ? clamp(inputs.groundWidth * 0.29, 1.8, 2.5)
-    : 0;
+  const recommendedLoftFloorHeight = inputs.includeLoft ? 2.2 : 0;
   const recommendedTotalHeight = inputs.includeLoft
     ? Math.max(recommendedLoftFloorHeight + inputs.minimumLoftHeadroom + 0.55, recommendedSideWallHeight + (inputs.groundWidth * 0.62))
     : Math.max(recommendedSideWallHeight + (inputs.groundWidth * 0.72), 3);
-  const recommendedSpacing = inputs.groundWidth > 8.5 ? 0.5 : 0.6;
-  const recommendedGlazingRatio = inputs.includeLoft ? 0.34 : 0.28;
+  const recommendedSpacing = 0.6;
   const anchorSpacingMin = inputs.includeConcreteSlab ? 1.5 : 1;
   const anchorSpacingMax = inputs.includeConcreteSlab ? 2.5 : 1.5;
 
@@ -1072,14 +1298,12 @@ export default function App() {
   const sideWallHeight = inputs.includeSideWall
     ? scaleFromRecommendation(recommendedSideWallHeight, sliderOffsets.sideWallHeight, 0, Math.max(totalHeight - 0.6, 0.1))
     : 0;
-  const maxLoftFloorHeight = Math.max(totalHeight - inputs.minimumLoftHeadroom - 0.3, 1.6);
+  const maxLoftFloorHeight = Math.max(totalHeight - inputs.minimumLoftHeadroom - 0.3, 2.0);
   const loftFloorHeight = inputs.includeLoft
-    ? scaleFromRecommendation(Math.min(recommendedLoftFloorHeight, maxLoftFloorHeight), sliderOffsets.loftFloorHeight, 1.6, maxLoftFloorHeight)
+    ? scaleFromRecommendation(Math.min(recommendedLoftFloorHeight, maxLoftFloorHeight), sliderOffsets.loftFloorHeight, 2.0, maxLoftFloorHeight)
     : 0;
   const rafterSpacing = scaleFromRecommendation(recommendedSpacing, sliderOffsets.rafterSpacing, 0.3, 1);
-  const glazingRatio = scaleFromRecommendation(recommendedGlazingRatio, sliderOffsets.glazingRatio, 0, 0.85);
-  const balconyMargin = inputs.includeLoft && inputs.includeBalcony ? clamp(inputs.groundLength * 0.14, 0.6, Math.max(inputs.groundLength * 0.22, 0.6)) : 0;
-
+  const glazingStage = clamp(Math.round(sliderOffsets.glazingRatio), 0, 6);
   const roofRise = Math.max(totalHeight - sideWallHeight, 0.6);
   const halfSpan = inputs.groundWidth / 2;
   const rafterLength = Math.sqrt((halfSpan * halfSpan) + (roofRise * roofRise));
@@ -1087,25 +1311,50 @@ export default function App() {
   const frameCount = Math.max(2, Math.floor(inputs.groundLength / Math.max(rafterSpacing, 0.2)) + 1);
   const bayCount = Math.max(frameCount - 1, 1);
   const actualSpacing = inputs.groundLength / bayCount;
+  const frontTerraceDepth = (2 + sliderOffsets.frontTerraceBays) * actualSpacing;
+  const backRecessDepth = actualSpacing;
+  const enclosedShellLength = Math.max(inputs.groundLength - frontTerraceDepth - backRecessDepth, actualSpacing * 2);
+  const groundFloorLength = Math.max(inputs.groundLength - backRecessDepth, actualSpacing * 2);
+  const balconyMargin = inputs.includeLoft && inputs.includeBalcony ? 3 * actualSpacing : 0;
+  const groundHeadspaceWidth = inputs.groundWidth * clamp(1 - ((Math.max(1.7 - sideWallHeight, 0)) / roofRise), 0, 1);
   const loftDeckWidth = inputs.includeLoft
     ? (loftFloorHeight <= sideWallHeight ? inputs.groundWidth : inputs.groundWidth * clamp(1 - ((loftFloorHeight - sideWallHeight) / roofRise), 0, 1))
+    : 0;
+  const loftHeadspaceWidth = inputs.includeLoft
+    ? (loftFloorHeight + 1.7 <= sideWallHeight
+      ? inputs.groundWidth
+      : inputs.groundWidth * clamp(1 - (((loftFloorHeight + 1.7) - sideWallHeight) / roofRise), 0, 1))
     : 0;
   const loftUsableWidth = inputs.includeLoft
     ? (loftFloorHeight + inputs.minimumLoftHeadroom <= sideWallHeight
       ? inputs.groundWidth
       : inputs.groundWidth * clamp(1 - (((loftFloorHeight + inputs.minimumLoftHeadroom) - sideWallHeight) / roofRise), 0, 1))
     : 0;
-  const loftDeckLength = inputs.includeLoft ? Math.max(inputs.groundLength - (balconyMargin * 2), 0.6) : 0;
+  const loftDeckLength = inputs.includeLoft ? Math.max(enclosedShellLength - (balconyMargin * 2), 0.6) : 0;
   const loftArea = loftUsableWidth * loftDeckLength;
-  const ladderOpeningLength = inputs.includeLoft ? clamp(inputs.groundLength * 0.12, 0.75, Math.min(1.4, Math.max(loftDeckLength - 0.2, 0.75))) : 0;
-  const ladderOpeningWidth = inputs.includeLoft ? clamp(loftUsableWidth * 0.26, 0.65, Math.min(1.05, Math.max(loftUsableWidth - 0.2, 0.65))) : 0;
+  const ladderOpeningLength = inputs.includeLoft ? Math.min(1.2, Math.max(loftDeckLength - 0.2, 0.4)) : 0;
+  const ladderOpeningWidth = inputs.includeLoft ? Math.min(0.7, Math.max(loftDeckWidth - 0.2, 0.4)) : 0;
+  const ladderOpeningMaxOffset = Math.max(loftDeckLength - ladderOpeningLength, 0);
   const ladderOpeningOffset = inputs.includeLoft
-    ? Math.max(0, (loftDeckLength - ladderOpeningLength) * (sliderOffsets.ladderPosition / 100))
+    ? (inputs.includeBalcony
+      ? 0
+      : Math.min(
+        Math.round((((ladderOpeningMaxOffset * sliderOffsets.ladderPosition) / 100) / Math.max(actualSpacing, 0.01))) * actualSpacing,
+        ladderOpeningMaxOffset,
+      ))
     : 0;
-  const roofSurfaceArea = 2 * rafterLength * inputs.groundLength;
-  const sideWallArea = 2 * inputs.groundLength * sideWallHeight;
+  const loftHoleLength = inputs.includeBalcony ? 0 : ladderOpeningLength;
+  const loftHoleWidth = inputs.includeBalcony ? 0 : ladderOpeningWidth;
+  const railingSectionArea = 0.045 * 0.095;
+  const railingVolume = inputs.includeLoft && inputs.includeBalcony
+    ? (((loftDeckWidth * 2.2) + 1.8) * railingSectionArea)
+    : 0;
+  const roofSurfaceArea = 2 * rafterLength * enclosedShellLength;
+  const sideWallArea = 2 * enclosedShellLength * sideWallHeight;
   const endWallArea = ((inputs.groundWidth * sideWallHeight) + (0.5 * inputs.groundWidth * roofRise)) * 2;
-  const glassArea = endWallArea * glazingRatio;
+  const glazingPreset = buildGlazingPreset(glazingStage, inputs.groundWidth, totalHeight, sideWallHeight);
+  const glassArea = glazingPreset.glassArea;
+  const glazingRatio = glazingPreset.ratio;
   const panelArea = roofSurfaceArea + sideWallArea + Math.max(endWallArea - glassArea, 0);
 
   const recommendedSection = getRecommendedSection(rafterLength, actualSpacing);
@@ -1123,7 +1372,7 @@ export default function App() {
   const anchorPoints = floorAxis.flatMap((y) => widthAxis.map((x) => ({ x, y })));
   const floorJoistVolume = inputs.includeConcreteSlab ? 0 : floorAxis.length * inputs.groundWidth * availableSectionArea;
   const perimeterBeamVolume = inputs.includeConcreteSlab ? 0 : ((inputs.groundLength * 2) + (inputs.groundWidth * 2)) * availableSectionArea;
-  const totalWoodVolume = rafterVolume + floorJoistVolume + perimeterBeamVolume;
+  const totalWoodVolume = rafterVolume + floorJoistVolume + perimeterBeamVolume + railingVolume;
 
   const woodCostEstimate = totalWoodVolume * inputs.woodCostPerCubic;
   const panelCostEstimate = panelArea * inputs.panelCostPerSquare;
@@ -1137,6 +1386,8 @@ export default function App() {
     rafterSpacing,
     anchorSpacingX: widthAxisGrid.spacing,
     anchorSpacingY: floorAxisGrid.spacing,
+    glazingStage,
+    glazingLabel: glazingPreset.label,
     glazingRatio,
     roofRise,
     rafterLength,
@@ -1277,7 +1528,7 @@ export default function App() {
               </label>
               <label className="checkbox-row-lite">
                 <input type="checkbox" checked={inputs.includeBalcony} disabled={!inputs.includeLoft} onChange={(event) => setInputs({ ...inputs, includeBalcony: event.target.checked })} />
-                <span>Retract loft for balcony</span>
+                <span>Retract loft for bigger open space</span>
               </label>
             </div>
 
@@ -1343,9 +1594,9 @@ export default function App() {
               ) : null}
               {inputs.includeLoft ? (
                 <AdjustmentSlider
-                  label="Loft floor level"
+                  label="Downstairs headspace"
                   valueLabel={formatLength(loftFloorHeight, unitSystem)}
-                  helper="Higher loft floors reduce the usable upstairs width."
+                  helper="Sets the clear height below the loft. Default is 2.2 m and it never goes below 2.0 m."
                   sliderValue={sliderOffsets.loftFloorHeight}
                   onSliderChange={(value) => setSliderOffsets({ ...sliderOffsets, loftFloorHeight: value })}
                 />
@@ -1353,8 +1604,8 @@ export default function App() {
               {inputs.includeLoft ? (
                 <RangeSlider
                   label="Ladder opening position"
-                  valueLabel={`${formatValue(sliderOffsets.ladderPosition, 0)}%`}
-                  helper="Moves the ladder opening along the loft length. Default is in the right third."
+                  valueLabel={inputs.includeBalcony ? 'Front loft edge' : formatLength(ladderOpeningOffset, unitSystem)}
+                  helper={inputs.includeBalcony ? 'Retracted loft keeps the ladder at the loft edge and shows only a dotted mark below.' : 'Moves the ladder opening along the loft length and snaps to rafter spacing.'}
                   sliderValue={sliderOffsets.ladderPosition}
                   min={0}
                   max={100}
@@ -1362,6 +1613,16 @@ export default function App() {
                   onSliderChange={(value) => setSliderOffsets({ ...sliderOffsets, ladderPosition: value })}
                 />
               ) : null}
+              <RangeSlider
+                label="Extra front terrace"
+                valueLabel={`${formatLength(sliderOffsets.frontTerraceBays * actualSpacing, unitSystem)}`}
+                helper="Adds more front terrace depth in full rafter-spacing steps beyond the default two bays."
+                sliderValue={sliderOffsets.frontTerraceBays}
+                min={0}
+                max={4}
+                step={1}
+                onSliderChange={(value) => setSliderOffsets({ ...sliderOffsets, frontTerraceBays: value })}
+              />
               <AdjustmentSlider
                 label="Rafter spacing"
                 valueLabel={formatLength(rafterSpacing, unitSystem)}
@@ -1369,11 +1630,14 @@ export default function App() {
                 sliderValue={sliderOffsets.rafterSpacing}
                 onSliderChange={(value) => setSliderOffsets({ ...sliderOffsets, rafterSpacing: value })}
               />
-              <AdjustmentSlider
+              <RangeSlider
                 label="Front and rear glazing"
-                valueLabel={`${formatValue(glazingRatio * 100, 0)}%`}
-                helper="Higher glazing trades panel area for glass area."
-                sliderValue={sliderOffsets.glazingRatio}
+                valueLabel={glazingPreset.label}
+                helper="Steps through door glass, front top glazing, full front glazing, then rear loft and rear full glazing."
+                sliderValue={glazingStage}
+                min={0}
+                max={6}
+                step={1}
                 onSliderChange={(value) => setSliderOffsets({ ...sliderOffsets, glazingRatio: value })}
               />
             </div>
@@ -1565,15 +1829,20 @@ export default function App() {
               totalHeight={totalHeight}
               sideWallHeight={sideWallHeight}
               cabinLength={inputs.groundLength}
-              glazingRatio={glazingRatio}
+              glazingStage={glazingStage}
               loftFloorHeight={loftFloorHeight}
               loftDeckWidth={loftDeckWidth}
               loftDeckLength={loftDeckLength}
               balconyMargin={balconyMargin}
+              frontWallOffset={frontTerraceDepth}
+              backWallOffset={backRecessDepth}
               includeLoft={inputs.includeLoft}
+              includeBalcony={inputs.includeBalcony}
               frameCount={frameCount}
               actualSpacing={actualSpacing}
               includeConcreteSlab={inputs.includeConcreteSlab}
+              ladderOffset={ladderOpeningOffset}
+              ladderLength={ladderOpeningLength}
             />
             <div className="preview-stats">
               <div>
@@ -1591,8 +1860,8 @@ export default function App() {
             </div>
           </section>
 
-          <FloorPlan title="Ground floor plan" areaLabel={formatArea(groundArea, unitSystem)} width={inputs.groundWidth} length={inputs.groundLength} loftWidth={0} loftLength={0} loftOffsetY={0} openingLength={ladderOpeningLength} openingWidth={ladderOpeningWidth} openingOffsetY={balconyMargin + ladderOpeningOffset} unit={unitSystem} />
-          <FloorPlan title="Loft plan" areaLabel={inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'} width={inputs.includeLoft ? loftDeckWidth : 0} length={inputs.includeLoft ? loftDeckLength : 0} loftWidth={inputs.includeLoft ? loftUsableWidth : 0} loftLength={inputs.includeLoft ? loftDeckLength : 0} loftOffsetY={0} openingLength={inputs.includeLoft ? ladderOpeningLength : 0} openingWidth={inputs.includeLoft ? ladderOpeningWidth : 0} openingOffsetY={inputs.includeLoft ? ladderOpeningOffset : 0} unit={unitSystem} />
+          <FloorPlan title="Ground floor plan" areaLabel={formatArea(inputs.groundWidth * groundFloorLength, unitSystem)} width={inputs.groundWidth} length={groundFloorLength} loftWidth={groundHeadspaceWidth} loftLength={enclosedShellLength} loftOffsetY={frontTerraceDepth} openingLength={ladderOpeningLength} openingWidth={ladderOpeningWidth} openingOffsetY={frontTerraceDepth + balconyMargin + ladderOpeningOffset} openingLabel={inputs.includeBalcony ? 'Ladder mark' : 'Ladder'} openingMarkerOnly={inputs.includeBalcony} unit={unitSystem} />
+          <FloorPlan title="Loft plan" areaLabel={inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'} width={inputs.includeLoft ? loftDeckWidth : 0} length={inputs.includeLoft ? loftDeckLength : 0} loftWidth={inputs.includeLoft ? loftHeadspaceWidth : 0} loftLength={inputs.includeLoft ? loftDeckLength : 0} loftOffsetY={0} openingLength={inputs.includeLoft ? loftHoleLength : 0} openingWidth={inputs.includeLoft ? loftHoleWidth : 0} openingOffsetY={inputs.includeLoft ? ladderOpeningOffset : 0} openingLabel="Ladder" unit={unitSystem} />
           <AnchorPlan length={inputs.groundLength} width={inputs.groundWidth} anchorPoints={anchorPoints} anchorSpacingX={widthAxisGrid.spacing} anchorSpacingY={floorAxisGrid.spacing} unit={unitSystem} />
         </aside>
       </div>
