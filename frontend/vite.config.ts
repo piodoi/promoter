@@ -7,4 +7,18 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5174,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/app.js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.names?.some((name) => name.slice(-4) === '.css')) {
+            return 'assets/app.css';
+          }
+          return 'assets/[name][extname]';
+        },
+      },
+    },
+  },
 });

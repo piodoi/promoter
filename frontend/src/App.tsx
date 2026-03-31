@@ -14,6 +14,8 @@ type PlannerInputs = {
   includeSideWall: boolean;
   includeConcreteSlab: boolean;
   minimumLoftHeadroom: number;
+  sideWallBaseHeight: number;
+  totalHeightBase: number;
   availableWoodWidth: number;
   availableWoodDepth: number;
   availableWoodLength: number;
@@ -44,6 +46,7 @@ type SectionRule = {
 type PlannerMetrics = {
   groundArea: number;
   groundHeadspaceArea: number;
+  floorBoardingArea: number;
   totalHeight: number;
   sideWallHeight: number;
   loftFloorHeight: number;
@@ -70,6 +73,7 @@ type PlannerMetrics = {
   endWallArea: number;
   glassArea: number;
   panelArea: number;
+  wallCladdingArea: number;
   totalWoodVolume: number;
   woodCostEstimate: number;
   panelCostEstimate: number;
@@ -157,12 +161,14 @@ const defaultInputs: PlannerInputs = {
   groundWidth: 4,
   groundLength: 6.4,
   includeLoft: true,
-  includeBalcony: false,
-  includeSideWall: false,
-  includeConcreteSlab: false,
+  includeBalcony: true,
+  includeSideWall: true,
+  includeConcreteSlab: true,
   minimumLoftHeadroom: 1.8,
-  availableWoodWidth: 0.045,
-  availableWoodDepth: 0.195,
+  sideWallBaseHeight: 0.15,
+  totalHeightBase: 2.5,
+  availableWoodWidth: 0.07,
+  availableWoodDepth: 0.15,
   availableWoodLength: 4.8,
   woodCostPerCubic: 950,
   panelCostPerSquare: 42,
@@ -601,7 +607,8 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
     ['Roof surfaces', formatArea(metrics.roofSurfaceArea, unitSystem)],
     ['Side walls', formatArea(metrics.sideWallArea, unitSystem)],
     ['Glass area', formatArea(metrics.glassArea, unitSystem)],
-    ['Panel area', formatArea(metrics.panelArea, unitSystem)],
+    ['Wall and roof cladding', formatArea(metrics.wallCladdingArea, unitSystem)],
+    ['Floor boarding', formatArea(metrics.floorBoardingArea, unitSystem)],
     ['Timber volume', formatVolume(metrics.totalWoodVolume, unitSystem)],
     ['Recommended section', getSectionLabel(metrics.recommendedSection, unitSystem)],
     ['Available stock', `${formatValue(stockWidth, unitSystem === 'metric' ? 0 : 2)} x ${formatValue(stockDepth, unitSystem === 'metric' ? 0 : 2)} ${stockUnit}`],
@@ -1329,14 +1336,12 @@ export default function App() {
 
   const groundArea = inputs.groundWidth * inputs.groundLength;
   const recommendedSideWallHeight = inputs.includeSideWall
-    ? (inputs.includeLoft
-    ? clamp(inputs.groundWidth * 0.12, 0, 1.4)
-    : clamp(inputs.groundWidth * 0.04, 0, 0.45))
+    ? inputs.sideWallBaseHeight
     : 0;
   const recommendedLoftFloorHeight = inputs.includeLoft ? 2.2 : 0;
   const recommendedTotalHeight = inputs.includeLoft
     ? Math.max(recommendedLoftFloorHeight + inputs.minimumLoftHeadroom + 0.55, recommendedSideWallHeight + (inputs.groundWidth * 0.62))
-    : Math.max(recommendedSideWallHeight + (inputs.groundWidth * 0.72), 3);
+    : inputs.totalHeightBase;
   const recommendedSpacing = 0.6;
   const anchorSpacingMin = inputs.includeConcreteSlab ? 1.5 : 1;
   const anchorSpacingMax = inputs.includeConcreteSlab ? 2.5 : 1.5;
@@ -1412,7 +1417,9 @@ export default function App() {
   const glazingPreset = buildGlazingPreset(glazingStage, inputs.groundWidth, totalHeight, sideWallHeight);
   const glassArea = glazingPreset.glassArea;
   const glazingRatio = glazingPreset.ratio;
-  const panelArea = roofSurfaceArea + sideWallArea + Math.max(endWallArea - glassArea, 0);
+  const wallCladdingArea = roofSurfaceArea + sideWallArea + Math.max(endWallArea - glassArea, 0);
+  const floorBoardingArea = (inputs.groundWidth * groundFloorLength) + (inputs.includeLoft ? loftDeckWidth * loftDeckLength : 0);
+  const panelArea = wallCladdingArea;
 
   const recommendedSection = getRecommendedSection(rafterLength, actualSpacing);
   const availableSectionArea = inputs.availableWoodWidth * inputs.availableWoodDepth;
@@ -1438,6 +1445,7 @@ export default function App() {
   const metrics: PlannerMetrics = {
     groundArea,
     groundHeadspaceArea,
+    floorBoardingArea,
     totalHeight,
     sideWallHeight,
     loftFloorHeight,
@@ -1464,6 +1472,7 @@ export default function App() {
     endWallArea,
     glassArea,
     panelArea,
+    wallCladdingArea,
     totalWoodVolume,
     woodCostEstimate,
     panelCostEstimate,
@@ -1559,18 +1568,44 @@ export default function App() {
                 <strong>{formatArea(groundArea, unitSystem)}</strong>
                 <p className="muted">Surface is derived from the ground width and length.</p>
               </div>
-              <DeferredNumberField
-                fieldId="minimumLoftHeadroom"
-                label={`Minimum loft headroom (${unitSystem === 'metric' ? 'm' : 'ft'})`}
-                value={toDisplayLength(inputs.minimumLoftHeadroom, unitSystem)}
-                commitSignal={commitSignal}
-                min={unitSystem === 'metric' ? 1 : 3.25}
-                max={unitSystem === 'metric' ? 2.5 : 8.2}
-                step={0.1}
-                disabled={!inputs.includeLoft}
-                onCommit={(value) => setInputs({ ...inputs, minimumLoftHeadroom: fromDisplayLength(value, unitSystem) })}
-                onDirtyChange={handleDirtyChange}
-              />
+              {inputs.includeLoft ? (
+                <DeferredNumberField
+                  fieldId="minimumLoftHeadroom"
+                  label={`Minimum loft headroom (${unitSystem === 'metric' ? 'm' : 'ft'})`}
+                  value={toDisplayLength(inputs.minimumLoftHeadroom, unitSystem)}
+                  commitSignal={commitSignal}
+                  min={unitSystem === 'metric' ? 1 : 3.25}
+                  max={unitSystem === 'metric' ? 2.5 : 8.2}
+                  step={0.1}
+                  onCommit={(value) => setInputs({ ...inputs, minimumLoftHeadroom: fromDisplayLength(value, unitSystem) })}
+                  onDirtyChange={handleDirtyChange}
+                />
+              ) : (
+                <DeferredNumberField
+                  fieldId="totalHeightBase"
+                  label={`Base total height (${unitSystem === 'metric' ? 'm' : 'ft'})`}
+                  value={toDisplayLength(inputs.totalHeightBase, unitSystem)}
+                  commitSignal={commitSignal}
+                  min={unitSystem === 'metric' ? 2.2 : 7.2}
+                  max={unitSystem === 'metric' ? 8 : 26.2}
+                  step={0.1}
+                  onCommit={(value) => setInputs({ ...inputs, totalHeightBase: fromDisplayLength(value, unitSystem) })}
+                  onDirtyChange={handleDirtyChange}
+                />
+              )}
+              {inputs.includeSideWall ? (
+                <DeferredNumberField
+                  fieldId="sideWallBaseHeight"
+                  label={`Base side wall height (${unitSystem === 'metric' ? 'm' : 'ft'})`}
+                  value={toDisplayLength(inputs.sideWallBaseHeight, unitSystem)}
+                  commitSignal={commitSignal}
+                  min={0}
+                  max={unitSystem === 'metric' ? 3 : 9.8}
+                  step={0.1}
+                  onCommit={(value) => setInputs({ ...inputs, sideWallBaseHeight: fromDisplayLength(value, unitSystem) })}
+                  onDirtyChange={handleDirtyChange}
+                />
+              ) : null}
             </div>
 
             <div className="toggle-row">
@@ -1588,7 +1623,7 @@ export default function App() {
               </label>
               <label className="checkbox-row-lite">
                 <input type="checkbox" checked={inputs.includeBalcony} disabled={!inputs.includeLoft} onChange={(event) => setInputs({ ...inputs, includeBalcony: event.target.checked })} />
-                <span>Retract loft for bigger open space</span>
+                <span>Retracted loft</span>
               </label>
             </div>
 
@@ -1669,11 +1704,11 @@ export default function App() {
                   onSliderChange={(value) => setSliderOffsets({ ...sliderOffsets, loftFloorHeight: value })}
                 />
               ) : null}
-              {inputs.includeLoft ? (
+              {inputs.includeLoft && !inputs.includeBalcony ? (
                 <RangeSlider
                   label="Ladder opening position"
-                  valueLabel={inputs.includeBalcony ? 'Front loft edge' : formatLength(ladderOpeningOffset, unitSystem)}
-                  helper={inputs.includeBalcony ? 'Retracted loft keeps the ladder at the loft edge and shows only a dotted mark below.' : 'Moves the ladder opening along the loft length and snaps to rafter spacing.'}
+                  valueLabel={formatLength(ladderOpeningOffset, unitSystem)}
+                  helper="Moves the ladder opening along the loft length and snaps to rafter spacing."
                   sliderValue={sliderOffsets.ladderPosition}
                   min={0}
                   max={100}
@@ -1736,8 +1771,12 @@ export default function App() {
                 <strong>{formatArea(glassArea, unitSystem)}</strong>
               </div>
               <div>
-                <span>Wood panel allowance</span>
-                <strong>{formatArea(panelArea, unitSystem)}</strong>
+                <span>Wall and roof cladding</span>
+                <strong>{formatArea(wallCladdingArea, unitSystem)}</strong>
+              </div>
+              <div>
+                <span>Floor boarding</span>
+                <strong>{formatArea(floorBoardingArea, unitSystem)}</strong>
               </div>
               <div>
                 <span>Timber shell volume</span>
@@ -1958,6 +1997,10 @@ export default function App() {
           <article>
             <strong>Slider behavior</strong>
             <p>Each tuning slider only moves plus or minus 30 percent around the current recommendation so the shell stays close to a reasonable starting point.</p>
+          </article>
+          <article>
+            <strong>Boarding split</strong>
+            <p>Wall and roof cladding is reported separately from floor boarding because floor boards often need a different thickness or finish.</p>
           </article>
           <article>
             <strong>No loft option</strong>
