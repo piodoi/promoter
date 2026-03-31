@@ -43,6 +43,7 @@ type SectionRule = {
 
 type PlannerMetrics = {
   groundArea: number;
+  groundHeadspaceArea: number;
   totalHeight: number;
   sideWallHeight: number;
   loftFloorHeight: number;
@@ -58,10 +59,12 @@ type PlannerMetrics = {
   frameCount: number;
   actualSpacing: number;
   loftDeckWidth: number;
+  loftHeadspaceWidth: number;
   loftUsableWidth: number;
   loftDeckLength: number;
   balconyMargin: number;
   loftArea: number;
+  loftHeadspaceArea: number;
   roofSurfaceArea: number;
   sideWallArea: number;
   endWallArea: number;
@@ -135,6 +138,7 @@ type ProjectedPoint = {
 
 const PREVIEW_CENTER_X = 210;
 const PREVIEW_CENTER_Y = 176;
+const LADDER_ANGLE_DEGREES = 75;
 
 const METERS_PER_FOOT = 0.3048;
 const SQM_PER_SQFT = 0.09290304;
@@ -292,6 +296,42 @@ function buildGridAxis(totalLength: number, minSpacing: number, maxSpacing: numb
 
   const positions = Array.from({ length: bestIntervalCount + 1 }, (_, index) => round((safeLength / bestIntervalCount) * index, 2));
   return { positions, spacing: round(bestSpacing, 2) };
+}
+
+function buildFrontRailingLayout(width: number, targetSpacing: number, hasOpening: boolean) {
+  const safeWidth = Math.max(width, 0);
+  if (safeWidth <= 0.05) {
+    return {
+      segments: [] as { startX: number; endX: number }[],
+      postXs: [] as number[],
+      totalRailLength: 0,
+      totalPostLength: 0,
+    };
+  }
+
+  const openingHalfWidth = hasOpening ? clamp(0.38, 0.22, Math.max((safeWidth / 2) - 0.2, 0.22)) : 0;
+  const segments = hasOpening
+    ? [
+      { startX: -safeWidth / 2, endX: -openingHalfWidth },
+      { startX: openingHalfWidth, endX: safeWidth / 2 },
+    ].filter((segment) => (segment.endX - segment.startX) > 0.05)
+    : [{ startX: -safeWidth / 2, endX: safeWidth / 2 }];
+  const maxSupportSpan = clamp(targetSpacing * 2.5, 1.2, 1.8);
+  const postXs = [...new Set(segments.flatMap((segment) => {
+    const segmentLength = segment.endX - segment.startX;
+    const interiorCount = Math.max(0, Math.ceil(segmentLength / maxSupportSpan) - 1);
+    const interiorPosts = Array.from({ length: interiorCount }, (_, index) => round(segment.startX + ((segmentLength / (interiorCount + 1)) * (index + 1)), 3));
+    return [round(segment.startX, 3), ...interiorPosts, round(segment.endX, 3)];
+  }))].sort((left, right) => left - right);
+  const totalRailLength = segments.reduce((sum, segment) => sum + (segment.endX - segment.startX), 0);
+  const totalPostLength = postXs.length * 0.92;
+
+  return {
+    segments,
+    postXs,
+    totalRailLength,
+    totalPostLength,
+  };
 }
 
 function downloadFile(content: string, fileName: string, mimeType: string) {
@@ -553,9 +593,11 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
     ['Ground width', formatLength(inputs.groundWidth, unitSystem)],
     ['Ground length', formatLength(inputs.groundLength, unitSystem)],
     ['Ground area', formatArea(metrics.groundArea, unitSystem)],
+    ['Floor 1.7 m zone', formatArea(metrics.groundHeadspaceArea, unitSystem)],
     ['Total height', formatLength(metrics.totalHeight, unitSystem)],
     ['Rafter length', formatLength(metrics.rafterLength, unitSystem)],
     ['Loft usable area', metrics.loftArea > 0 ? formatArea(metrics.loftArea, unitSystem) : 'No loft enabled'],
+    ['Loft 1.7 m zone', metrics.loftArea > 0 ? formatArea(metrics.loftHeadspaceArea, unitSystem) : 'No loft enabled'],
     ['Roof surfaces', formatArea(metrics.roofSurfaceArea, unitSystem)],
     ['Side walls', formatArea(metrics.sideWallArea, unitSystem)],
     ['Glass area', formatArea(metrics.glassArea, unitSystem)],
@@ -854,7 +896,7 @@ function buildGlazingPreset(stage: number, width: number, totalHeight: number, s
   };
 }
 
-function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLength, glazingStage, loftFloorHeight, loftDeckWidth, loftDeckLength, balconyMargin, frontWallOffset, backWallOffset, includeLoft, includeBalcony, frameCount, actualSpacing, includeConcreteSlab, ladderOffset, ladderLength }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingStage: number; loftFloorHeight: number; loftDeckWidth: number; loftDeckLength: number; balconyMargin: number; frontWallOffset: number; backWallOffset: number; includeLoft: boolean; includeBalcony: boolean; frameCount: number; actualSpacing: number; includeConcreteSlab: boolean; ladderOffset: number; ladderLength: number }) {
+function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLength, glazingStage, loftFloorHeight, loftDeckWidth, loftDeckLength, balconyMargin, frontWallOffset, backWallOffset, includeLoft, includeBalcony, frameCount, actualSpacing, includeConcreteSlab, ladderOffset, ladderTopInset, ladderRun }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingStage: number; loftFloorHeight: number; loftDeckWidth: number; loftDeckLength: number; balconyMargin: number; frontWallOffset: number; backWallOffset: number; includeLoft: boolean; includeBalcony: boolean; frameCount: number; actualSpacing: number; includeConcreteSlab: boolean; ladderOffset: number; ladderTopInset: number; ladderRun: number }) {
   const defaultYaw = -0.72;
   const defaultPitch = 0.28;
   const defaultZoom = 16;
@@ -979,29 +1021,27 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
     ].map((line) => line.map((point) => projectScenePoint(point)))
     : [];
 
+  const railingLayout = includeLoft && includeBalcony && loftDeckWidth > 0 && loftDeckLength > 0.2
+    ? buildFrontRailingLayout(loftDeckWidth, actualSpacing, true)
+    : { segments: [], postXs: [], totalRailLength: 0, totalPostLength: 0 };
   const railingLines = includeLoft && includeBalcony && loftDeckWidth > 0 && loftDeckLength > 0.2
     ? [
-      [
-        { x: -loftHalfWidth, y: loftFloorHeight + 0.92, z: loftFrontZ },
-        { x: loftHalfWidth, y: loftFloorHeight + 0.92, z: loftFrontZ },
-      ],
-      [
-        { x: -loftHalfWidth, y: loftFloorHeight, z: loftFrontZ },
-        { x: -loftHalfWidth, y: loftFloorHeight + 0.92, z: loftFrontZ },
-      ],
-      [
-        { x: loftHalfWidth, y: loftFloorHeight, z: loftFrontZ },
-        { x: loftHalfWidth, y: loftFloorHeight + 0.92, z: loftFrontZ },
-      ],
+      ...railingLayout.segments.map((segment) => ([
+        { x: segment.startX, y: loftFloorHeight + 0.92, z: loftFrontZ },
+        { x: segment.endX, y: loftFloorHeight + 0.92, z: loftFrontZ },
+      ])),
+      ...railingLayout.postXs.map((x) => ([
+        { x, y: loftFloorHeight, z: loftFrontZ },
+        { x, y: loftFloorHeight + 0.92, z: loftFrontZ },
+      ])),
     ].map((line) => line.map((point) => projectScenePoint(point)))
     : [];
 
   const ladderTopZ = includeBalcony
     ? loftFrontZ
-    : loftFrontZ + Math.min(Math.max(ladderOffset + ladderLength, 0.2), Math.max(loftDeckLength, 0.2));
-  const ladderBaseZ = includeBalcony
-    ? ladderTopZ - Math.max(actualSpacing, 0.2)
-    : ladderTopZ - 0.2;
+    : loftFrontZ + Math.min(Math.max(ladderOffset + ladderTopInset, 0.2), Math.max(loftDeckLength, 0.2));
+  const ladderBaseZ = ladderTopZ - Math.max(ladderRun, 0.2);
+  const ladderRailZAtHeight = (heightRatio: number) => ladderBaseZ + ((ladderTopZ - ladderBaseZ) * heightRatio);
   const ladderLines = includeLoft
     ? [
       [
@@ -1013,16 +1053,16 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
         { x: 0.22, y: loftFloorHeight, z: ladderTopZ },
       ],
       [
-        { x: -0.22, y: loftFloorHeight * 0.3, z: ladderBaseZ + 0.06 },
-        { x: 0.22, y: loftFloorHeight * 0.3, z: ladderBaseZ + 0.12 },
+        { x: -0.22, y: loftFloorHeight * 0.3, z: ladderRailZAtHeight(0.3) },
+        { x: 0.22, y: loftFloorHeight * 0.3, z: ladderRailZAtHeight(0.3) },
       ],
       [
-        { x: -0.22, y: loftFloorHeight * 0.55, z: ladderBaseZ + 0.12 },
-        { x: 0.22, y: loftFloorHeight * 0.55, z: ladderBaseZ + 0.18 },
+        { x: -0.22, y: loftFloorHeight * 0.55, z: ladderRailZAtHeight(0.55) },
+        { x: 0.22, y: loftFloorHeight * 0.55, z: ladderRailZAtHeight(0.55) },
       ],
       [
-        { x: -0.22, y: loftFloorHeight * 0.8, z: ladderBaseZ + 0.18 },
-        { x: 0.22, y: loftFloorHeight * 0.8, z: ladderBaseZ + 0.24 },
+        { x: -0.22, y: loftFloorHeight * 0.8, z: ladderRailZAtHeight(0.8) },
+        { x: 0.22, y: loftFloorHeight * 0.8, z: ladderRailZAtHeight(0.8) },
       ],
     ].map((line) => line.map((point) => projectScenePoint(point)))
     : [];
@@ -1190,7 +1230,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
   );
 }
 
-function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, loftOffsetY, openingLength, openingWidth, openingOffsetY, openingLabel, openingMarkerOnly, unit }: { title: string; areaLabel: string; width: number; length: number; loftWidth: number; loftLength: number; loftOffsetY: number; openingLength: number; openingWidth: number; openingOffsetY: number; openingLabel?: string; openingMarkerOnly?: boolean; unit: UnitSystem }) {
+function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, loftOffsetY, openingLength, openingWidth, openingOffsetY, openingLabel, openingMarkerOnly, headspaceAreaLabel, unit }: { title: string; areaLabel: string; width: number; length: number; loftWidth: number; loftLength: number; loftOffsetY: number; openingLength: number; openingWidth: number; openingOffsetY: number; openingLabel?: string; openingMarkerOnly?: boolean; headspaceAreaLabel?: string; unit: UnitSystem }) {
   const hasPlan = width > 0.05 && length > 0.05;
   const outerX = 24;
   const outerY = 30;
@@ -1207,6 +1247,8 @@ function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, lof
   const openingVisualHeight = openingWidth * planFrame.scale;
   const openingX = planX + (openingOffsetY * planFrame.scale);
   const openingY = planY + ((planFrame.drawHeight - openingVisualHeight) / 2);
+  const headspaceLabelX = Math.min(loftX + loftVisualWidth + 12, 346);
+  const headspaceLabelY = planY + (planFrame.drawHeight / 2);
 
   return (
     <div className="visual-card">
@@ -1226,7 +1268,10 @@ function FloorPlan({ title, areaLabel, width, length, loftWidth, loftLength, lof
               </>
             ) : null}
             {loftWidth > 0 && loftLength > 0 ? (
-              <text x="180" y="18" textAnchor="middle" fontSize="10">1.7 m headspace width {formatLength(loftWidth, unit)} (- - - -)</text>
+              <>
+                <text x="180" y="18" textAnchor="middle" fontSize="10">1.7 m headspace area {headspaceAreaLabel ?? formatArea(loftWidth * loftLength, unit)} (- - - -)</text>
+                <text x={headspaceLabelX} y={headspaceLabelY} transform={`rotate(-90 ${headspaceLabelX} ${headspaceLabelY})`} textAnchor="middle" fontSize="10">Headspace width {formatLength(loftWidth, unit)}</text>
+              </>
             ) : null}
             <text x="180" y="222" textAnchor="middle">Length {formatLength(length, unit)}</text>
             <text x="14" y="118" transform="rotate(-90 14 118)" textAnchor="middle">Width {formatLength(width, unit)}</text>
@@ -1332,8 +1377,11 @@ export default function App() {
       ? inputs.groundWidth
       : inputs.groundWidth * clamp(1 - (((loftFloorHeight + inputs.minimumLoftHeadroom) - sideWallHeight) / roofRise), 0, 1))
     : 0;
-  const loftDeckLength = inputs.includeLoft ? Math.max(enclosedShellLength - (balconyMargin * 2), 0.6) : 0;
+  const loftDeckLength = inputs.includeLoft ? Math.max(enclosedShellLength - balconyMargin, 0.6) : 0;
+  const groundHeadspaceArea = groundHeadspaceWidth * enclosedShellLength;
+  const loftHeadspaceArea = loftHeadspaceWidth * loftDeckLength;
   const loftArea = loftUsableWidth * loftDeckLength;
+  const ladderFootprintLength = inputs.includeLoft ? Math.max(loftFloorHeight / Math.tan((LADDER_ANGLE_DEGREES * Math.PI) / 180), 0.2) : 0;
   const ladderOpeningLength = inputs.includeLoft ? Math.min(1.2, Math.max(loftDeckLength - 0.2, 0.4)) : 0;
   const ladderOpeningWidth = inputs.includeLoft ? Math.min(0.7, Math.max(loftDeckWidth - 0.2, 0.4)) : 0;
   const ladderOpeningMaxOffset = Math.max(loftDeckLength - ladderOpeningLength, 0);
@@ -1345,14 +1393,18 @@ export default function App() {
         ladderOpeningMaxOffset,
       ))
     : 0;
-  const groundLadderMarkerOffset = inputs.includeBalcony
-    ? Math.max(balconyMargin - actualSpacing, 0)
-    : balconyMargin + ladderOpeningOffset;
+  const ladderTopOffset = inputs.includeBalcony
+    ? balconyMargin
+    : balconyMargin + ladderOpeningOffset + ladderOpeningLength;
+  const groundLadderMarkerOffset = Math.max(ladderTopOffset - ladderFootprintLength, 0);
   const loftHoleLength = inputs.includeBalcony ? 0 : ladderOpeningLength;
   const loftHoleWidth = inputs.includeBalcony ? 0 : ladderOpeningWidth;
   const railingSectionArea = 0.045 * 0.095;
+  const railingLayout = inputs.includeLoft && inputs.includeBalcony
+    ? buildFrontRailingLayout(loftDeckWidth, actualSpacing, true)
+    : { segments: [], postXs: [], totalRailLength: 0, totalPostLength: 0 };
   const railingVolume = inputs.includeLoft && inputs.includeBalcony
-    ? (((loftDeckWidth * 2.2) + 1.8) * railingSectionArea)
+    ? ((railingLayout.totalRailLength + railingLayout.totalPostLength) * railingSectionArea)
     : 0;
   const roofSurfaceArea = 2 * rafterLength * enclosedShellLength;
   const sideWallArea = 2 * enclosedShellLength * sideWallHeight;
@@ -1385,6 +1437,7 @@ export default function App() {
   const shellCostEstimate = woodCostEstimate + panelCostEstimate + glassCostEstimate;
   const metrics: PlannerMetrics = {
     groundArea,
+    groundHeadspaceArea,
     totalHeight,
     sideWallHeight,
     loftFloorHeight,
@@ -1400,10 +1453,12 @@ export default function App() {
     frameCount,
     actualSpacing,
     loftDeckWidth,
+    loftHeadspaceWidth,
     loftUsableWidth,
     loftDeckLength,
     balconyMargin,
     loftArea,
+    loftHeadspaceArea,
     roofSurfaceArea,
     sideWallArea,
     endWallArea,
@@ -1577,6 +1632,14 @@ export default function App() {
               <article>
                 <span>Usable upstairs area</span>
                 <strong>{inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'}</strong>
+              </article>
+              <article>
+                <span>Floor 1.7 m zone</span>
+                <strong>{formatArea(groundHeadspaceArea, unitSystem)}</strong>
+              </article>
+              <article>
+                <span>Loft 1.7 m zone</span>
+                <strong>{inputs.includeLoft ? formatArea(loftHeadspaceArea, unitSystem) : 'No loft'}</strong>
               </article>
             </div>
 
@@ -1847,7 +1910,8 @@ export default function App() {
               actualSpacing={actualSpacing}
               includeConcreteSlab={inputs.includeConcreteSlab}
               ladderOffset={ladderOpeningOffset}
-              ladderLength={ladderOpeningLength}
+              ladderTopInset={ladderOpeningLength}
+              ladderRun={ladderFootprintLength}
             />
             <div className="preview-stats">
               <div>
@@ -1855,8 +1919,16 @@ export default function App() {
                 <span>Ground floor area</span>
               </div>
               <div>
+                <strong>{formatArea(groundHeadspaceArea, unitSystem)}</strong>
+                <span>Floor 1.7 m zone</span>
+              </div>
+              <div>
                 <strong>{inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'}</strong>
                 <span>Usable upstairs</span>
+              </div>
+              <div>
+                <strong>{inputs.includeLoft ? formatArea(loftHeadspaceArea, unitSystem) : 'No loft'}</strong>
+                <span>Loft 1.7 m zone</span>
               </div>
               <div>
                 <strong>{formatCurrency(shellCostEstimate)}</strong>
@@ -1865,8 +1937,8 @@ export default function App() {
             </div>
           </section>
 
-          <FloorPlan title="Ground floor plan" areaLabel={formatArea(inputs.groundWidth * groundFloorLength, unitSystem)} width={inputs.groundWidth} length={groundFloorLength} loftWidth={groundHeadspaceWidth} loftLength={enclosedShellLength} loftOffsetY={frontTerraceDepth} openingLength={ladderOpeningLength} openingWidth={ladderOpeningWidth} openingOffsetY={frontTerraceDepth + groundLadderMarkerOffset} openingLabel={inputs.includeBalcony ? 'Ladder mark' : 'Ladder'} openingMarkerOnly={inputs.includeBalcony} unit={unitSystem} />
-          <FloorPlan title="Loft plan" areaLabel={inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'} width={inputs.includeLoft ? loftDeckWidth : 0} length={inputs.includeLoft ? loftDeckLength : 0} loftWidth={inputs.includeLoft ? loftHeadspaceWidth : 0} loftLength={inputs.includeLoft ? loftDeckLength : 0} loftOffsetY={0} openingLength={inputs.includeLoft ? loftHoleLength : 0} openingWidth={inputs.includeLoft ? loftHoleWidth : 0} openingOffsetY={inputs.includeLoft ? ladderOpeningOffset : 0} openingLabel="Ladder" unit={unitSystem} />
+          <FloorPlan title="Ground floor plan" areaLabel={formatArea(inputs.groundWidth * groundFloorLength, unitSystem)} width={inputs.groundWidth} length={groundFloorLength} loftWidth={groundHeadspaceWidth} loftLength={enclosedShellLength} loftOffsetY={frontTerraceDepth} openingLength={ladderFootprintLength} openingWidth={Math.min(ladderOpeningWidth, 0.7)} openingOffsetY={frontTerraceDepth + groundLadderMarkerOffset} openingLabel={inputs.includeBalcony ? 'Ladder mark' : 'Ladder'} openingMarkerOnly={inputs.includeBalcony} headspaceAreaLabel={formatArea(groundHeadspaceArea, unitSystem)} unit={unitSystem} />
+          <FloorPlan title="Loft plan" areaLabel={inputs.includeLoft ? formatArea(loftArea, unitSystem) : 'No loft'} width={inputs.includeLoft ? loftDeckWidth : 0} length={inputs.includeLoft ? loftDeckLength : 0} loftWidth={inputs.includeLoft ? loftHeadspaceWidth : 0} loftLength={inputs.includeLoft ? loftDeckLength : 0} loftOffsetY={0} openingLength={inputs.includeLoft ? loftHoleLength : 0} openingWidth={inputs.includeLoft ? loftHoleWidth : 0} openingOffsetY={inputs.includeLoft ? ladderOpeningOffset : 0} openingLabel="Ladder" headspaceAreaLabel={inputs.includeLoft ? formatArea(loftHeadspaceArea, unitSystem) : undefined} unit={unitSystem} />
           <AnchorPlan length={inputs.groundLength} width={inputs.groundWidth} anchorPoints={anchorPoints} anchorSpacingX={widthAxisGrid.spacing} anchorSpacingY={floorAxisGrid.spacing} unit={unitSystem} />
         </aside>
       </div>
