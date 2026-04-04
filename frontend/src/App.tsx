@@ -641,17 +641,21 @@ function buildDxf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: Un
   ].join('\n');
 }
 
-function addPdfPlan(doc: jsPDF, title: string, x: number, y: number, width: number, length: number, innerWidth: number, innerLength: number, innerOffsetY: number, unitSystem: UnitSystem) {
+function addPdfPlan(doc: jsPDF, title: string, x: number, y: number, width: number, length: number, innerWidth: number, innerLength: number, innerOffsetY: number, unitSystem: UnitSystem, sharedScale?: number) {
   const boxWidth = 70;
   const boxHeight = 42;
-  const scale = Math.min(boxWidth / Math.max(width, 1), boxHeight / Math.max(length, 1));
+  const panelWidth = 91;
+  const scale = sharedScale ?? Math.min(boxWidth / Math.max(width, 1), boxHeight / Math.max(length, 1));
   const drawWidth = width * scale;
   const drawHeight = length * scale;
-  const originX = x + ((boxWidth - drawWidth) / 2);
-  const originY = y + 8;
+  const originX = x + ((panelWidth - drawWidth) / 2);
+  const drawingTopY = y + 8;
+  const drawingBottomY = y + 48;
+  const originY = drawingTopY + ((drawingBottomY - drawingTopY - drawHeight) / 2);
+  const centerX = x + (panelWidth / 2);
 
   doc.setFontSize(12);
-  doc.text(title, x, y);
+  doc.text(title, centerX, y, { align: 'center' });
   doc.setDrawColor(71, 54, 39);
   doc.rect(originX, originY, drawWidth, drawHeight);
 
@@ -667,8 +671,8 @@ function addPdfPlan(doc: jsPDF, title: string, x: number, y: number, width: numb
   }
 
   doc.setFontSize(9);
-  doc.text(`Width ${formatLength(width, unitSystem)}`, x, y + 56);
-  doc.text(`Length ${formatLength(length, unitSystem)}`, x, y + 62);
+  doc.text(`Width ${formatLength(width, unitSystem)}`, centerX, y + 56, { align: 'center' });
+  doc.text(`Length ${formatLength(length, unitSystem)}`, centerX, y + 62, { align: 'center' });
 }
 
 function addPdfAnchorPlan(doc: jsPDF, x: number, y: number, width: number, length: number, anchorPoints: { x: number; y: number }[], anchorSpacingX: number, anchorSpacingY: number, unitSystem: UnitSystem) {
@@ -693,100 +697,6 @@ function addPdfAnchorPlan(doc: jsPDF, x: number, y: number, width: number, lengt
   doc.setFontSize(9);
   doc.text(`${anchorPoints.length} anchors total`, x, y + 56);
   doc.text(`Grid ${formatLength(anchorSpacingX, unitSystem)} x ${formatLength(anchorSpacingY, unitSystem)}`, x, y + 62);
-}
-
-function addPdfFrameBlueprint(doc: jsPDF, x: number, y: number, metrics: PlannerMetrics, inputs: PlannerInputs, unitSystem: UnitSystem) {
-  const boxWidth = 182;
-  const boxHeight = 138;
-  const drawingPadding = 16;
-  const drawWidth = boxWidth - (drawingPadding * 2);
-  const drawHeight = boxHeight - 28;
-  const scale = Math.min(drawWidth / Math.max(inputs.groundWidth, 1), drawHeight / Math.max(metrics.totalHeight, 1));
-  const baseWidth = inputs.groundWidth * scale;
-  const totalHeight = metrics.totalHeight * scale;
-  const sideWallHeight = metrics.sideWallHeight * scale;
-  const fullRafterLength = Math.sqrt(((inputs.groundWidth / 2) * (inputs.groundWidth / 2)) + (metrics.totalHeight * metrics.totalHeight));
-  const originX = x + ((boxWidth - baseWidth) / 2);
-  const baseY = y + boxHeight - 18;
-  const apexX = originX + (baseWidth / 2);
-  const apexY = baseY - totalHeight;
-  const leftTopY = baseY - sideWallHeight;
-  const rightTopY = leftTopY;
-  const loftY = baseY - (metrics.loftFloorHeight * scale);
-  const loftWidth = metrics.loftDeckWidth * scale;
-  const loftX = x + ((boxWidth - loftWidth) / 2);
-  const apexAngle = 180 - (metrics.roofPitch * 2);
-
-  doc.setFontSize(15);
-  doc.text('Single A-frame blueprint', x, y - 4);
-  doc.setDrawColor(71, 54, 39);
-  doc.roundedRect(x, y, boxWidth, boxHeight, 6, 6);
-
-  doc.setLineWidth(0.7);
-  doc.line(originX, baseY, apexX, apexY);
-  doc.line(apexX, apexY, originX + baseWidth, baseY);
-  doc.line(originX, baseY, originX + baseWidth, baseY);
-
-  if (metrics.sideWallHeight > 0) {
-    doc.setDrawColor(127, 93, 59);
-    doc.setLineWidth(0.45);
-    doc.line(originX, baseY, originX, leftTopY);
-    doc.line(originX, leftTopY, originX + baseWidth, rightTopY);
-    doc.line(originX + baseWidth, rightTopY, originX + baseWidth, baseY);
-  }
-
-  if (metrics.loftArea > 0) {
-    doc.setDrawColor(31, 95, 117);
-    doc.setLineWidth(0.7);
-    doc.line(loftX, loftY, loftX + loftWidth, loftY);
-    doc.line(loftX, loftY, loftX, baseY);
-    doc.line(loftX + loftWidth, loftY, loftX + loftWidth, baseY);
-  }
-
-  doc.setDrawColor(79, 101, 112);
-  doc.setLineWidth(0.35);
-  doc.line(originX, baseY + 8, originX + baseWidth, baseY + 8);
-  doc.line(originX, baseY + 5, originX, baseY + 11);
-  doc.line(originX + baseWidth, baseY + 5, originX + baseWidth, baseY + 11);
-  doc.text(`Base width ${formatLength(inputs.groundWidth, unitSystem)}`, x + (boxWidth / 2), baseY + 15, { align: 'center' });
-
-  doc.line(originX - 10, baseY, originX - 10, apexY);
-  doc.line(originX - 13, baseY, originX - 7, baseY);
-  doc.line(originX - 13, apexY, originX - 7, apexY);
-  doc.text(`Total height ${formatLength(metrics.totalHeight, unitSystem)}`, originX - 16, (baseY + apexY) / 2, { angle: 90 });
-
-  doc.setDrawColor(31, 95, 117);
-  doc.setLineWidth(0.45);
-  doc.setFontSize(9);
-  drawPdfAngleArc(doc, apexX, apexY + 17, 13, 180 - metrics.roofPitch, metrics.roofPitch, `Apex angle ${formatValue(apexAngle, 1)} deg`, 22);
-
-  if (metrics.sideWallHeight > 0) {
-    doc.line(originX + baseWidth + 10, baseY, originX + baseWidth + 10, leftTopY);
-    doc.line(originX + baseWidth + 7, baseY, originX + baseWidth + 13, baseY);
-    doc.line(originX + baseWidth + 7, leftTopY, originX + baseWidth + 13, leftTopY);
-    doc.text(`Side wall ${formatLength(metrics.sideWallHeight, unitSystem)}`, originX + baseWidth + 16, baseY - 4, { angle: 90 });
-  }
-
-  doc.setFontSize(10);
-  doc.setTextColor(71, 54, 39);
-  doc.text(`Rafter length ${formatLength(fullRafterLength, unitSystem)}`, x + 10, y + boxHeight + 8);
-  doc.text(`Roof pitch ${formatValue(metrics.roofPitch, 1)} deg`, x + 74, y + boxHeight + 8);
-  doc.text(`Loft level ${metrics.loftArea > 0 ? formatLength(metrics.loftFloorHeight, unitSystem) : 'No loft'}`, x + 124, y + boxHeight + 8);
-
-  doc.setFontSize(11);
-  doc.text('DIY cut list and counts', x, y + boxHeight + 22);
-  doc.setFontSize(9);
-  const frameRows = [
-    `Build ${metrics.frameCount} A-frames at ${formatLength(metrics.actualSpacing, unitSystem)} centers`,
-    `Per frame: 2 rafters at ${formatLength(fullRafterLength, unitSystem)}`,
-    `Per frame: 1 base tie at ${formatLength(inputs.groundWidth, unitSystem)}`,
-    metrics.sideWallHeight > 0 ? `Per frame: 2 side wall studs at ${formatLength(metrics.sideWallHeight, unitSystem)}` : 'True A-frame: no vertical side wall studs',
-    metrics.loftArea > 0 ? `Loft deck level set at ${formatLength(metrics.loftFloorHeight, unitSystem)}` : 'No loft deck included in this configuration',
-  ];
-
-  frameRows.forEach((row, index) => {
-    doc.text(`- ${row}`, x, y + boxHeight + 30 + (index * 6));
-  });
 }
 
 function drawPdfFilledPolygon(doc: jsPDF, points: { x: number; y: number }[], fill: [number, number, number], stroke: [number, number, number], lineWidth = 0.5) {
@@ -826,48 +736,40 @@ function addPdfRenderedViewsPage(doc: jsPDF, metrics: PlannerMetrics, inputs: Pl
   const views = [
     { title: 'Front isometric', yaw: -0.72, pitch: 0.28, x: 14, y: 34 },
     { title: 'Back isometric', yaw: 2.35, pitch: 0.28, x: 108, y: 34 },
-    { title: 'Side isometric', yaw: -1.57, pitch: 0.24, x: 14, y: 136 },
+    { title: 'Top view', yaw: 0, pitch: 1.18, x: 14, y: 136 },
+    { title: 'Front raised 45 deg', yaw: 0, pitch: 0.78, x: 108, y: 136 },
   ];
 
   function drawView(viewX: number, viewY: number, title: string, yaw: number, pitch: number) {
     const boxWidth = 84;
     const boxHeight = 78;
-    const width = inputs.groundWidth;
-    const totalHeight = metrics.totalHeight;
-    const sideWallHeight = metrics.sideWallHeight;
-    const cabinLength = inputs.groundLength;
-    const halfWidth = Math.max(width / 2, 0.1);
-    const halfLength = Math.max(cabinLength / 2, 0.1);
-    const frontWallZ = -halfLength + metrics.frontTerraceDepth;
-    const backWallZ = halfLength - (metrics.actualSpacing);
-    const loftHalfWidth = Math.max(metrics.loftDeckWidth / 2, 0.08);
-    const loftFrontZ = frontWallZ + metrics.balconyMargin;
-    const loftRearZ = backWallZ;
-    const cameraDistance = (Math.max(width, cabinLength, totalHeight, 2.8) * 4.6) + 18;
-    const projectedFaces = [
-      { fill: [122, 85, 58] as [number, number, number], stroke: [78, 51, 33] as [number, number, number], points: [{ x: -halfWidth, y: 0, z: -halfLength }, { x: halfWidth, y: 0, z: -halfLength }, { x: halfWidth, y: 0, z: backWallZ }, { x: -halfWidth, y: 0, z: backWallZ }] },
-      { fill: [183, 122, 71] as [number, number, number], stroke: [108, 66, 36] as [number, number, number], points: [{ x: -halfWidth, y: 0, z: -halfLength }, { x: -halfWidth, y: sideWallHeight, z: -halfLength }, { x: 0, y: totalHeight, z: -halfLength }, { x: 0, y: totalHeight, z: backWallZ }, { x: -halfWidth, y: sideWallHeight, z: backWallZ }, { x: -halfWidth, y: 0, z: backWallZ }] },
-      { fill: [141, 82, 42] as [number, number, number], stroke: [93, 52, 25] as [number, number, number], points: [{ x: halfWidth, y: 0, z: -halfLength }, { x: halfWidth, y: sideWallHeight, z: -halfLength }, { x: 0, y: totalHeight, z: -halfLength }, { x: 0, y: totalHeight, z: backWallZ }, { x: halfWidth, y: sideWallHeight, z: backWallZ }, { x: halfWidth, y: 0, z: backWallZ }] },
-      { fill: [214, 187, 147] as [number, number, number], stroke: [108, 69, 38] as [number, number, number], points: [{ x: -halfWidth, y: 0, z: frontWallZ }, { x: -halfWidth, y: sideWallHeight, z: frontWallZ }, { x: 0, y: totalHeight, z: frontWallZ }, { x: halfWidth, y: sideWallHeight, z: frontWallZ }, { x: halfWidth, y: 0, z: frontWallZ }] },
-      { fill: [217, 198, 165] as [number, number, number], stroke: [108, 69, 38] as [number, number, number], points: [{ x: -halfWidth, y: 0, z: backWallZ }, { x: -halfWidth, y: sideWallHeight, z: backWallZ }, { x: 0, y: totalHeight, z: backWallZ }, { x: halfWidth, y: sideWallHeight, z: backWallZ }, { x: halfWidth, y: 0, z: backWallZ }] },
-    ].map((face) => {
-      const projected = face.points.map((point) => projectPoint(point, yaw, pitch, cameraDistance));
-      const minX = Math.min(...projected.map((point) => point.x));
-      const maxX = Math.max(...projected.map((point) => point.x));
-      const minY = Math.min(...projected.map((point) => point.y));
-      const maxY = Math.max(...projected.map((point) => point.y));
-      const depth = projected.reduce((sum, point) => sum + point.z, 0) / projected.length;
-      return { ...face, projected, minX, maxX, minY, maxY, depth };
-    }).sort((left, right) => left.depth - right.depth);
-
-    const loftPolygon = [
-      { x: -loftHalfWidth, y: metrics.loftFloorHeight, z: loftFrontZ },
-      { x: loftHalfWidth, y: metrics.loftFloorHeight, z: loftFrontZ },
-      { x: loftHalfWidth, y: metrics.loftFloorHeight, z: loftRearZ },
-      { x: -loftHalfWidth, y: metrics.loftFloorHeight, z: loftRearZ },
-    ].map((point) => projectPoint(point, yaw, pitch, cameraDistance));
-
-    const allPoints = [...projectedFaces.flatMap((face) => face.projected), ...loftPolygon];
+    const ladderTopInset = Math.min(1.2, Math.max(metrics.loftDeckLength - 0.2, 0.4));
+    const ladderRun = metrics.loftArea > 0 ? Math.max(metrics.loftFloorHeight / Math.tan((LADDER_ANGLE_DEGREES * Math.PI) / 180), 0.2) : 0;
+    const scene = buildProjectedCabinScene({
+      width: inputs.groundWidth,
+      totalHeight: metrics.totalHeight,
+      sideWallHeight: metrics.sideWallHeight,
+      cabinLength: inputs.groundLength,
+      glazingStage: metrics.glazingStage,
+      loftFloorHeight: metrics.loftFloorHeight,
+      loftDeckWidth: metrics.loftDeckWidth,
+      loftDeckLength: metrics.loftDeckLength,
+      balconyMargin: metrics.balconyMargin,
+      frontWallOffset: metrics.frontTerraceDepth,
+      backWallOffset: metrics.actualSpacing,
+      includeLoft: inputs.includeLoft,
+      includeBalcony: inputs.includeBalcony,
+      frameCount: metrics.frameCount,
+      actualSpacing: metrics.actualSpacing,
+      includeConcreteSlab: inputs.includeConcreteSlab,
+      ladderOffset: 0,
+      ladderTopInset,
+      ladderRun,
+      yaw,
+      pitch,
+      scale: 1,
+    });
+    const allPoints = scene.allProjectedPoints;
     const minX = Math.min(...allPoints.map((point) => point.x));
     const maxX = Math.max(...allPoints.map((point) => point.x));
     const minY = Math.min(...allPoints.map((point) => point.y));
@@ -881,17 +783,55 @@ function addPdfRenderedViewsPage(doc: jsPDF, metrics: PlannerMetrics, inputs: Pl
     doc.roundedRect(viewX, viewY, boxWidth, boxHeight, 4, 4);
     doc.setFontSize(11);
     doc.text(title, viewX + 4, viewY + 8);
-    projectedFaces.forEach((face) => drawPdfFilledPolygon(doc, face.projected.map(mapPoint), face.fill, face.stroke, 0.35));
-    if (metrics.loftArea > 0) {
-      drawPdfFilledPolygon(doc, loftPolygon.map(mapPoint), [241, 214, 161], [127, 93, 59], 0.4);
+    scene.faces.forEach((face) => drawPdfFilledPolygon(doc, face.projected.map(mapPoint), hexToRgb(face.fill), hexToRgb(face.stroke), 0.2));
+    drawPdfFilledPolygon(doc, scene.frontWoodFace.map(mapPoint), [214, 187, 147], [108, 69, 38], 0.2);
+    if (scene.loftPolygon) {
+      drawPdfFilledPolygon(doc, scene.loftPolygon.map(mapPoint), [241, 214, 161], [127, 93, 59], 0.2);
     }
+    scene.backGlazingPolygons.forEach((polygon) => drawPdfFilledPolygon(doc, polygon.map(mapPoint), [180, 223, 235], [31, 95, 117], 0.18));
+    scene.frontGlazingPolygons.forEach((polygon) => drawPdfFilledPolygon(doc, polygon.map(mapPoint), [124, 196, 216], [31, 95, 117], 0.18));
+    doc.setDrawColor(96, 74, 53);
+    doc.setLineWidth(0.45);
+    scene.floorStructureLines.forEach((line) => doc.line(mapPoint(line[0]).x, mapPoint(line[0]).y, mapPoint(line[1]).x, mapPoint(line[1]).y));
+    doc.setLineWidth(0.55);
+    scene.rafterLines.forEach((line) => doc.line(mapPoint(line[0]).x, mapPoint(line[0]).y, mapPoint(line[1]).x, mapPoint(line[1]).y));
+    doc.setDrawColor(127, 93, 59);
+    scene.loftEdgeLines.forEach((line) => doc.line(mapPoint(line[0]).x, mapPoint(line[0]).y, mapPoint(line[1]).x, mapPoint(line[1]).y));
+    doc.setDrawColor(214, 187, 147);
+    scene.railingLines.forEach((line) => doc.line(mapPoint(line[0]).x, mapPoint(line[0]).y, mapPoint(line[1]).x, mapPoint(line[1]).y));
+    scene.ladderLines.forEach((line) => doc.line(mapPoint(line[0]).x, mapPoint(line[0]).y, mapPoint(line[1]).x, mapPoint(line[1]).y));
+    if (scene.loftPolygon) {
+      doc.setDrawColor(127, 93, 59);
+      doc.setLineWidth(0.65);
+      const loftPoints = scene.loftPolygon.map(mapPoint);
+      for (let index = 0; index < loftPoints.length; index += 1) {
+        const nextIndex = (index + 1) % loftPoints.length;
+        doc.line(loftPoints[index].x, loftPoints[index].y, loftPoints[nextIndex].x, loftPoints[nextIndex].y);
+      }
+    }
+    const drawPolygonOutline = (points: ProjectedPoint[], strokeColor: [number, number, number], lineWidth = 0.5) => {
+      if (points.length < 2) {
+        return;
+      }
+      const mapped = points.map(mapPoint);
+      doc.setDrawColor(strokeColor[0], strokeColor[1], strokeColor[2]);
+      doc.setLineWidth(lineWidth);
+      for (let index = 0; index < mapped.length; index += 1) {
+        const nextIndex = (index + 1) % mapped.length;
+        doc.line(mapped[index].x, mapped[index].y, mapped[nextIndex].x, mapped[nextIndex].y);
+      }
+    };
+    drawPolygonOutline(scene.doorPolygon, [47, 31, 20], 0.45);
+    drawPolygonOutline(scene.doorGlassPolygon, [47, 31, 20], 0.35);
+    scene.backGlazingPolygons.forEach((polygon) => drawPolygonOutline(polygon, [31, 95, 117], 0.35));
+    scene.frontGlazingPolygons.forEach((polygon) => drawPolygonOutline(polygon, [31, 95, 117], 0.45));
   }
 
   doc.addPage();
   doc.setFontSize(20);
   doc.text('3D reference views', 14, 18);
   doc.setFontSize(10);
-  doc.text('Rendered vector snapshots for review and handoff.', 14, 26);
+  doc.text('Textured snapshots generated from the live preview geometry with wireframe overlays for reading the structure.', 14, 26);
   views.forEach((view) => drawView(view.x, view.y, view.title, view.yaw, view.pitch));
 }
 
@@ -903,32 +843,39 @@ function addPdfFramingSchematicPage(doc: jsPDF, metrics: PlannerMetrics, inputs:
   const drawingScale = Math.min((boxWidth - 24) / Math.max(inputs.groundWidth, 0.1), (boxHeight - 34) / Math.max(metrics.totalHeight, 0.1));
   const baseWidth = inputs.groundWidth * drawingScale;
   const totalHeight = metrics.totalHeight * drawingScale;
-  const leftBase = { x: boxX + ((boxWidth - baseWidth) / 2), y: boxY + boxHeight - 16 };
+  const halfSpan = inputs.groundWidth / 2;
+  const rafterLength = Math.max(metrics.fullRafterLength, 0.001);
+  const timberInset = Math.min(inputs.availableWoodDepth, rafterLength * 0.25);
+  const innerApexDrop = (timberInset * rafterLength) / Math.max(halfSpan, 0.001);
+  const innerApexHeight = Math.max(metrics.totalHeight - innerApexDrop, metrics.loftFloorHeight);
+  const innerLoftClearance = Math.max(innerApexHeight - metrics.loftFloorHeight, 0);
+  const loftHalfWidth = metrics.loftDeckWidth / 2;
+  const leftBase = { x: boxX + ((boxWidth - baseWidth) / 2), y: boxY + boxHeight - 52 };
   const rightBase = { x: leftBase.x + baseWidth, y: leftBase.y };
   const apex = { x: leftBase.x + (baseWidth / 2), y: leftBase.y - totalHeight };
   const sideWallHeight = metrics.sideWallHeight * drawingScale;
   const leftKnee = { x: leftBase.x + ((sideWallHeight / Math.max(totalHeight, 0.1)) * (apex.x - leftBase.x)), y: leftBase.y - sideWallHeight };
   const rightKnee = { x: rightBase.x - ((sideWallHeight / Math.max(totalHeight, 0.1)) * (rightBase.x - apex.x)), y: rightBase.y - sideWallHeight };
   const loftY = leftBase.y - (metrics.loftFloorHeight * drawingScale);
-  const loftLeftX = apex.x - ((metrics.loftDeckWidth * drawingScale) / 2);
-  const loftRightX = apex.x + ((metrics.loftDeckWidth * drawingScale) / 2);
-  const upperHeight = Math.max(metrics.totalHeight - metrics.loftFloorHeight, 0);
-
-  const drawPlate = (centerX: number, centerY: number, width: number, height: number, angleDeg = 0) => {
-    const radians = angleDeg * (Math.PI / 180);
-    const halfWidth = width / 2;
-    const halfHeight = height / 2;
-    const corners = [
-      { x: -halfWidth, y: -halfHeight },
-      { x: halfWidth, y: -halfHeight },
-      { x: halfWidth, y: halfHeight },
-      { x: -halfWidth, y: halfHeight },
-    ].map((point) => ({
-      x: centerX + ((point.x * Math.cos(radians)) - (point.y * Math.sin(radians))),
-      y: centerY + ((point.x * Math.sin(radians)) + (point.y * Math.cos(radians))),
-    }));
-    drawPdfFilledPolygon(doc, corners, [186, 193, 198], [128, 136, 144], 0.35);
+  const innerApexY = leftBase.y - (innerApexHeight * drawingScale);
+  const loftLeftX = apex.x - (loftHalfWidth * drawingScale);
+  const loftRightX = apex.x + (loftHalfWidth * drawingScale);
+  const stockLabel = unitSystem === 'metric'
+    ? `${formatValue(inputs.availableWoodWidth * 1000, 0)} x ${formatValue(inputs.availableWoodDepth * 1000, 0)} mm`
+    : `${formatValue((inputs.availableWoodWidth * 1000) / MM_PER_INCH, 2)} x ${formatValue((inputs.availableWoodDepth * 1000) / MM_PER_INCH, 2)} in`;
+  const rafterMidpoint = { x: leftBase.x + ((apex.x - leftBase.x) * 0.56), y: leftBase.y + ((apex.y - leftBase.y) * 0.56) };
+  const rafterLabelOffset = 10;
+  const rafterLabelPoint = {
+    x: rafterMidpoint.x - (((leftBase.y - apex.y) / Math.max(metrics.fullRafterLength * drawingScale, 0.1)) * rafterLabelOffset),
+    y: rafterMidpoint.y - (((apex.x - leftBase.x) / Math.max(metrics.fullRafterLength * drawingScale, 0.1)) * rafterLabelOffset),
   };
+  const frameRows = [
+    `Build ${metrics.frameCount} A-frames at ${formatLength(metrics.actualSpacing, unitSystem)} centers`,
+    `Per frame: 2 rafters at ${formatLength(metrics.fullRafterLength, unitSystem)}`,
+    `Per frame: 1 base tie at ${formatLength(inputs.groundWidth, unitSystem)}`,
+    metrics.sideWallHeight > 0 ? `Per frame: 2 side wall studs at ${formatLength(metrics.sideWallHeight, unitSystem)}` : 'True A-frame: no vertical side wall studs',
+    metrics.loftArea > 0 ? `Loft deck level set at ${formatLength(metrics.loftFloorHeight, unitSystem)}` : 'No loft deck included in this configuration',
+  ];
 
   doc.addPage();
   doc.setFontSize(20);
@@ -949,16 +896,6 @@ function addPdfFramingSchematicPage(doc: jsPDF, metrics: PlannerMetrics, inputs:
     doc.line(loftLeftX, loftY, loftRightX, loftY);
   }
 
-  drawPlate(apex.x, apex.y + 8, 8, 5, 0);
-  drawPlate(leftKnee.x + 4, leftKnee.y + 6, 8, 5, -65);
-  drawPlate(rightKnee.x - 4, rightKnee.y + 6, 8, 5, 65);
-  drawPlate(loftLeftX + 4, loftY - 2, 8, 5, 0);
-  drawPlate(loftRightX - 4, loftY - 2, 8, 5, 0);
-  drawPlate(leftBase.x + ((apex.x - leftBase.x) * 0.35), leftBase.y - ((leftBase.y - apex.y) * 0.35), 8, 5, -60);
-  drawPlate(rightBase.x - ((rightBase.x - apex.x) * 0.35), rightBase.y - ((rightBase.y - apex.y) * 0.35), 8, 5, 60);
-  drawPlate(leftBase.x + (baseWidth * 0.4), leftBase.y, 8, 5, 0);
-  drawPlate(leftBase.x + (baseWidth * 0.6), leftBase.y, 8, 5, 0);
-
   doc.setDrawColor(45, 45, 45);
   doc.setLineWidth(0.45);
   doc.line(leftBase.x - 12, leftBase.y, leftBase.x - 12, apex.y);
@@ -977,10 +914,10 @@ function addPdfFramingSchematicPage(doc: jsPDF, metrics: PlannerMetrics, inputs:
     doc.line(loftRightX, loftY + 7, loftRightX, loftY + 13);
     doc.text(formatLength(metrics.loftDeckWidth, unitSystem), apex.x, loftY + 20, { align: 'center' });
 
-    doc.line(apex.x + 10, loftY, apex.x + 10, apex.y + 10);
-    doc.line(apex.x + 7, loftY, apex.x + 13, loftY);
-    doc.line(apex.x + 7, apex.y + 10, apex.x + 13, apex.y + 10);
-    doc.text(formatLength(upperHeight, unitSystem), apex.x + 18, (loftY + apex.y + 10) / 2, { angle: 90, align: 'center' });
+    doc.line(apex.x, loftY, apex.x, innerApexY);
+    doc.line(apex.x - 3, loftY, apex.x + 3, loftY);
+    doc.line(apex.x - 3, innerApexY, apex.x + 3, innerApexY);
+    doc.text(formatLength(innerLoftClearance, unitSystem), apex.x + 6, (loftY + innerApexY) / 2, { angle: 90, align: 'center' });
 
     doc.line(apex.x - 12, loftY, apex.x - 12, leftBase.y);
     doc.line(apex.x - 15, loftY, apex.x - 9, loftY);
@@ -992,13 +929,21 @@ function addPdfFramingSchematicPage(doc: jsPDF, metrics: PlannerMetrics, inputs:
     doc.line(rightKnee.x + 12, rightKnee.y, rightKnee.x + 12, rightBase.y);
     doc.line(rightKnee.x + 9, rightKnee.y, rightKnee.x + 15, rightKnee.y);
     doc.line(rightKnee.x + 9, rightBase.y, rightKnee.x + 15, rightBase.y);
-    doc.text(formatLength(metrics.sideWallHeight, unitSystem), rightKnee.x + 20, (rightKnee.y + rightBase.y) / 2, { angle: 90, align: 'center' });
+    doc.text(formatLength(metrics.sideWallHeight, unitSystem), rightKnee.x + 24, (rightKnee.y + rightBase.y) / 2, { angle: 90, align: 'center' });
   }
 
   doc.setFontSize(10);
-  doc.text(`Frames ${metrics.frameCount} at ${formatLength(metrics.actualSpacing, unitSystem)} centers`, 18, 244);
-  doc.text(`Rafter length ${formatLength(metrics.fullRafterLength, unitSystem)}`, 18, 250);
-  doc.text(`Stock ${unitSystem === 'metric' ? `${formatValue(inputs.availableWoodWidth * 1000, 0)} x ${formatValue(inputs.availableWoodDepth * 1000, 0)} mm` : `${formatValue((inputs.availableWoodWidth * 1000) / MM_PER_INCH, 2)} x ${formatValue((inputs.availableWoodDepth * 1000) / MM_PER_INCH, 2)} in`}`, 18, 256);
+  doc.text(`Rafter length ${formatLength(metrics.fullRafterLength, unitSystem)}`, rafterLabelPoint.x, rafterLabelPoint.y, { angle: metrics.roofPitch, align: 'center' });
+  doc.text(`Roof pitch ${formatValue(metrics.roofPitch, 1)} deg`, 18, 236);
+  doc.text(`Loft level ${metrics.loftArea > 0 ? formatLength(metrics.loftFloorHeight, unitSystem) : 'No loft'}`, 72, 236);
+  doc.text(`Stock ${stockLabel}`, 132, 236, { align: 'center' });
+
+  doc.setFontSize(11);
+  doc.text('DIY cut list and counts', 18, 246);
+  doc.setFontSize(9);
+  frameRows.forEach((row, index) => {
+    doc.text(`- ${row}`, 18, 253 + (index * 6));
+  });
 }
 
 function addPdfApexDetail(doc: jsPDF, metrics: PlannerMetrics, inputs: PlannerInputs, unitSystem: UnitSystem) {
@@ -1359,19 +1304,16 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
   });
 
   y += 16;
-  addPdfPlan(doc, 'Ground floor', 14, y, inputs.groundWidth, metrics.groundFloorLength, metrics.groundHeadspaceWidth, metrics.enclosedShellLength, metrics.frontTerraceDepth, unitSystem);
-  addPdfPlan(doc, 'Loft plan', 105, y, metrics.loftDeckWidth, metrics.loftDeckLength, metrics.loftHeadspaceWidth, metrics.loftDeckLength, 0, unitSystem);
+  const sharedPlanScale = Math.min(
+    70 / Math.max(inputs.groundWidth, metrics.loftDeckWidth, 1),
+    42 / Math.max(metrics.groundFloorLength, metrics.loftDeckLength, 1),
+  );
+  addPdfPlan(doc, 'Ground floor', 14, y, inputs.groundWidth, metrics.groundFloorLength, metrics.groundHeadspaceWidth, metrics.enclosedShellLength, metrics.frontTerraceDepth, unitSystem, sharedPlanScale);
+  addPdfPlan(doc, 'Loft plan', 105, y, metrics.loftDeckWidth, metrics.loftDeckLength, metrics.loftHeadspaceWidth, metrics.loftDeckLength, 0, unitSystem, sharedPlanScale);
   addPdfAnchorPlan(doc, 14, y + 78, inputs.groundWidth, inputs.groundLength, metrics.anchorPoints, metrics.anchorSpacingX, metrics.anchorSpacingY, unitSystem);
   doc.setFontSize(9);
   doc.text(`Rafter spacing ${formatLength(metrics.actualSpacing, unitSystem)} | Roof pitch ${formatValue(metrics.roofPitch, 1)} deg`, 105, y + 134);
   doc.text(`Facade glazing ${metrics.glazingLabel}`, 105, y + 140);
-
-  doc.addPage();
-  doc.setFontSize(20);
-  doc.text('DIY frame sheet', 14, 18);
-  doc.setFontSize(10);
-  doc.text('Use this page as a single-frame reference for cutting and setting the repeated A-frame modules.', 14, 26);
-  addPdfFrameBlueprint(doc, 14, 36, metrics, inputs, unitSystem);
 
   addPdfRenderedViewsPage(doc, metrics, inputs);
   addPdfFramingSchematicPage(doc, metrics, inputs, unitSystem);
@@ -1509,6 +1451,17 @@ function polygonPoints(points: ProjectedPoint[]) {
   return points.map((point) => `${point.x},${point.y}`).join(' ');
 }
 
+function hexToRgb(hex: string): [number, number, number] {
+  const normalized = hex.replace('#', '');
+  const safeHex = normalized.length === 3
+    ? normalized.split('').map((value) => `${value}${value}`).join('')
+    : normalized;
+  const red = Number.parseInt(safeHex.slice(0, 2), 16);
+  const green = Number.parseInt(safeHex.slice(2, 4), 16);
+  const blue = Number.parseInt(safeHex.slice(4, 6), 16);
+  return [red, green, blue];
+}
+
 function getPlanFrame(length: number, width: number, maxDrawWidth: number, maxDrawHeight: number) {
   const safeLength = Math.max(length, 0.1);
   const safeWidth = Math.max(width, 0.1);
@@ -1635,15 +1588,7 @@ function buildGlazingPreset(stage: number, width: number, totalHeight: number, s
   };
 }
 
-function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLength, glazingStage, loftFloorHeight, loftDeckWidth, loftDeckLength, balconyMargin, frontWallOffset, backWallOffset, includeLoft, includeBalcony, frameCount, actualSpacing, includeConcreteSlab, ladderOffset, ladderTopInset, ladderRun }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingStage: number; loftFloorHeight: number; loftDeckWidth: number; loftDeckLength: number; balconyMargin: number; frontWallOffset: number; backWallOffset: number; includeLoft: boolean; includeBalcony: boolean; frameCount: number; actualSpacing: number; includeConcreteSlab: boolean; ladderOffset: number; ladderTopInset: number; ladderRun: number }) {
-  const defaultYaw = -0.72;
-  const defaultPitch = 0.28;
-  const defaultZoom = 16;
-  const [yaw, setYaw] = useState(defaultYaw);
-  const [pitch, setPitch] = useState(defaultPitch);
-  const [zoom, setZoom] = useState(defaultZoom);
-  const [dragState, setDragState] = useState<DragState>({ active: false, lastX: 0, lastY: 0 });
-
+function buildProjectedCabinScene({ width, totalHeight, sideWallHeight, cabinLength, glazingStage, loftFloorHeight, loftDeckWidth, loftDeckLength, balconyMargin, frontWallOffset, backWallOffset, includeLoft, includeBalcony, frameCount, actualSpacing, includeConcreteSlab, ladderOffset, ladderTopInset, ladderRun, yaw, pitch, scale = 1 }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingStage: number; loftFloorHeight: number; loftDeckWidth: number; loftDeckLength: number; balconyMargin: number; frontWallOffset: number; backWallOffset: number; includeLoft: boolean; includeBalcony: boolean; frameCount: number; actualSpacing: number; includeConcreteSlab: boolean; ladderOffset: number; ladderTopInset: number; ladderRun: number; yaw: number; pitch: number; scale?: number }) {
   const halfWidth = Math.max(width / 2, 0.1);
   const halfLength = Math.max(cabinLength / 2, 0.1);
   const roofRise = Math.max(totalHeight - sideWallHeight, 0.6);
@@ -1676,36 +1621,14 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
   const glazingPreset = buildGlazingPreset(glazingStage, width, totalHeight, sideWallHeight);
   const maxDimension = Math.max(width, cabinLength, totalHeight, 2.8);
   const cameraDistance = (maxDimension * 4.6) + 18;
-  const fitScale = clamp(2.4 / maxDimension, 0.22, 0.72);
-  const sceneScale = fitScale * zoom * 0.32;
-  const projectScenePoint = (point: Point3D) => scaleProjectedPoint(projectPoint(point, yaw, pitch, cameraDistance), sceneScale);
+  const projectScenePoint = (point: Point3D) => scaleProjectedPoint(projectPoint(point, yaw, pitch, cameraDistance), scale);
 
   const faces = [
-    {
-      fill: '#7a553a',
-      stroke: '#4e3321',
-      points: [frontLeftBottom, frontRightBottom, backRightBottom, backLeftBottom],
-    },
-    {
-      fill: '#b77a47',
-      stroke: '#6c4224',
-      points: [frontLeftBottom, frontLeftKnee, frontApex, backApex, backLeftKnee, backLeftBottom],
-    },
-    {
-      fill: '#8d522a',
-      stroke: '#5d3419',
-      points: [frontRightBottom, frontRightKnee, frontApex, backApex, backRightKnee, backRightBottom],
-    },
-    {
-      fill: '#d6bb93',
-      stroke: '#6c4526',
-      points: [frontWallLeftBase, frontWallLeftKnee, frontWallApex, frontWallRightKnee, frontWallRightBase],
-    },
-    {
-      fill: '#d9c6a5',
-      stroke: '#6c4526',
-      points: [backWallLeftBase, backWallLeftKnee, backWallApex, backWallRightKnee, backWallRightBase],
-    },
+    { fill: '#7a553a', stroke: '#4e3321', points: [frontLeftBottom, frontRightBottom, backRightBottom, backLeftBottom] },
+    { fill: '#b77a47', stroke: '#6c4224', points: [frontLeftBottom, frontLeftKnee, frontApex, backApex, backLeftKnee, backLeftBottom] },
+    { fill: '#8d522a', stroke: '#5d3419', points: [frontRightBottom, frontRightKnee, frontApex, backApex, backRightKnee, backRightBottom] },
+    { fill: '#d6bb93', stroke: '#6c4526', points: [frontWallLeftBase, frontWallLeftKnee, frontWallApex, frontWallRightKnee, frontWallRightBase] },
+    { fill: '#d9c6a5', stroke: '#6c4526', points: [backWallLeftBase, backWallLeftKnee, backWallApex, backWallRightKnee, backWallRightBase] },
   ].map((face) => {
     const projected = face.points.map((point) => projectScenePoint(point));
     const depth = projected.reduce((sum, point) => sum + point.z, 0) / projected.length;
@@ -1714,26 +1637,23 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
 
   const frontWoodFace = [frontWallLeftBase, frontWallLeftKnee, frontWallApex, frontWallRightKnee, frontWallRightBase].map((point) => projectScenePoint({ ...point, z: frontWallZ + 0.005 }));
   const frontWallFace = [frontWallLeftBase, frontWallLeftKnee, frontWallApex, frontWallRightKnee, frontWallRightBase];
-  const backWallFace = [backWallLeftBase, backWallLeftKnee, backWallApex, backWallRightKnee, backWallRightBase];
+  const backWallFace = [backWallRightBase, backWallRightKnee, backWallApex, backWallLeftKnee, backWallLeftBase];
   const showFrontGlazing = isFaceVisible(frontWallFace, yaw, pitch, cameraDistance);
   const showBackGlazing = isFaceVisible(backWallFace, yaw, pitch, cameraDistance);
   const frontGlazingPolygons = glazingPreset.frontPolygons.map((polygon) => polygon.map((point) => projectScenePoint({ x: point.x, y: point.y, z: frontWallZ + 0.01 })));
   const backGlazingPolygons = glazingPreset.backPolygons.map((polygon) => polygon.map((point) => projectScenePoint({ x: point.x, y: point.y, z: backWallZ + 0.01 })));
-
   const doorPolygon = [
     { x: -(glazingPreset.doorWidth / 2), y: 0, z: frontWallZ + 0.02 },
     { x: -(glazingPreset.doorWidth / 2), y: glazingPreset.doorHeight, z: frontWallZ + 0.02 },
     { x: glazingPreset.doorWidth / 2, y: glazingPreset.doorHeight, z: frontWallZ + 0.02 },
     { x: glazingPreset.doorWidth / 2, y: 0, z: frontWallZ + 0.02 },
   ].map((point) => projectScenePoint(point));
-
   const doorGlassPolygon = [
     { x: -(glazingPreset.doorWidth / 2) + glazingPreset.doorInset, y: glazingPreset.doorInset, z: frontWallZ + 0.025 },
     { x: -(glazingPreset.doorWidth / 2) + glazingPreset.doorInset, y: glazingPreset.doorHeight - glazingPreset.doorInset, z: frontWallZ + 0.025 },
     { x: (glazingPreset.doorWidth / 2) - glazingPreset.doorInset, y: glazingPreset.doorHeight - glazingPreset.doorInset, z: frontWallZ + 0.025 },
     { x: (glazingPreset.doorWidth / 2) - glazingPreset.doorInset, y: glazingPreset.doorInset, z: frontWallZ + 0.025 },
   ].map((point) => projectScenePoint(point));
-
   const loftPolygon = includeLoft && loftDeckWidth > 0 && loftDeckLength > 0.2
     ? [
       { x: -loftHalfWidth, y: loftFloorHeight, z: loftFrontZ },
@@ -1742,70 +1662,36 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
       { x: -loftHalfWidth, y: loftFloorHeight, z: loftRearZ },
     ].map((point) => projectScenePoint(point))
     : null;
-
   const loftEdgeLines = includeLoft && loftDeckWidth > 0 && loftDeckLength > 0.2
     ? [
-      [
-        { x: -loftHalfWidth, y: loftFloorHeight, z: loftFrontZ },
-        { x: -loftHalfWidth, y: 0, z: loftFrontZ },
-      ],
-      [
-        { x: loftHalfWidth, y: loftFloorHeight, z: loftFrontZ },
-        { x: loftHalfWidth, y: 0, z: loftFrontZ },
-      ],
-      [
-        { x: -loftHalfWidth, y: loftFloorHeight, z: loftRearZ },
-        { x: loftHalfWidth, y: loftFloorHeight, z: loftRearZ },
-      ],
+      [{ x: -loftHalfWidth, y: loftFloorHeight, z: loftFrontZ }, { x: -loftHalfWidth, y: 0, z: loftFrontZ }],
+      [{ x: loftHalfWidth, y: loftFloorHeight, z: loftFrontZ }, { x: loftHalfWidth, y: 0, z: loftFrontZ }],
+      [{ x: -loftHalfWidth, y: loftFloorHeight, z: loftRearZ }, { x: loftHalfWidth, y: loftFloorHeight, z: loftRearZ }],
     ].map((line) => line.map((point) => projectScenePoint(point)))
     : [];
-
   const railingLayout = includeLoft && includeBalcony && loftDeckWidth > 0 && loftDeckLength > 0.2
     ? buildFrontRailingLayout(loftDeckWidth, actualSpacing, true)
     : { segments: [], postXs: [], totalRailLength: 0, totalPostLength: 0 };
   const railingLines = includeLoft && includeBalcony && loftDeckWidth > 0 && loftDeckLength > 0.2
     ? [
-      ...railingLayout.segments.map((segment) => ([
-        { x: segment.startX, y: loftFloorHeight + 0.92, z: loftFrontZ },
-        { x: segment.endX, y: loftFloorHeight + 0.92, z: loftFrontZ },
-      ])),
-      ...railingLayout.postXs.map((x) => ([
-        { x, y: loftFloorHeight, z: loftFrontZ },
-        { x, y: loftFloorHeight + 0.92, z: loftFrontZ },
-      ])),
+      ...railingLayout.segments.map((segment) => ([{ x: segment.startX, y: loftFloorHeight + 0.92, z: loftFrontZ }, { x: segment.endX, y: loftFloorHeight + 0.92, z: loftFrontZ }])),
+      ...railingLayout.postXs.map((x) => ([{ x, y: loftFloorHeight, z: loftFrontZ }, { x, y: loftFloorHeight + 0.92, z: loftFrontZ }])),
     ].map((line) => line.map((point) => projectScenePoint(point)))
     : [];
-
   const ladderTopZ = includeBalcony
     ? loftFrontZ
     : loftFrontZ + Math.min(Math.max(ladderOffset + ladderTopInset, 0.2), Math.max(loftDeckLength, 0.2));
-  const ladderBaseZ = ladderTopZ - Math.max(ladderRun, 0.2);
+  const ladderBaseZ = Math.max(frontWallZ + 0.18, ladderTopZ - Math.max(ladderRun, 0.8));
   const ladderRailZAtHeight = (heightRatio: number) => ladderBaseZ + ((ladderTopZ - ladderBaseZ) * heightRatio);
   const ladderLines = includeLoft
     ? [
-      [
-        { x: -0.22, y: 0, z: ladderBaseZ },
-        { x: -0.22, y: loftFloorHeight, z: ladderTopZ },
-      ],
-      [
-        { x: 0.22, y: 0, z: ladderBaseZ },
-        { x: 0.22, y: loftFloorHeight, z: ladderTopZ },
-      ],
-      [
-        { x: -0.22, y: loftFloorHeight * 0.3, z: ladderRailZAtHeight(0.3) },
-        { x: 0.22, y: loftFloorHeight * 0.3, z: ladderRailZAtHeight(0.3) },
-      ],
-      [
-        { x: -0.22, y: loftFloorHeight * 0.55, z: ladderRailZAtHeight(0.55) },
-        { x: 0.22, y: loftFloorHeight * 0.55, z: ladderRailZAtHeight(0.55) },
-      ],
-      [
-        { x: -0.22, y: loftFloorHeight * 0.8, z: ladderRailZAtHeight(0.8) },
-        { x: 0.22, y: loftFloorHeight * 0.8, z: ladderRailZAtHeight(0.8) },
-      ],
+      [{ x: -0.22, y: 0, z: ladderBaseZ }, { x: -0.22, y: loftFloorHeight, z: ladderTopZ }],
+      [{ x: 0.22, y: 0, z: ladderBaseZ }, { x: 0.22, y: loftFloorHeight, z: ladderTopZ }],
+      [{ x: -0.22, y: loftFloorHeight * 0.3, z: ladderRailZAtHeight(0.3) }, { x: 0.22, y: loftFloorHeight * 0.3, z: ladderRailZAtHeight(0.3) }],
+      [{ x: -0.22, y: loftFloorHeight * 0.55, z: ladderRailZAtHeight(0.55) }, { x: 0.22, y: loftFloorHeight * 0.55, z: ladderRailZAtHeight(0.55) }],
+      [{ x: -0.22, y: loftFloorHeight * 0.8, z: ladderRailZAtHeight(0.8) }, { x: 0.22, y: loftFloorHeight * 0.8, z: ladderRailZAtHeight(0.8) }],
     ].map((line) => line.map((point) => projectScenePoint(point)))
     : [];
-
   const frameZPositions = Array.from({ length: frameCount }, (_, index) => (-halfLength + (actualSpacing * index)));
   const rafterLines = frameZPositions.flatMap((zPosition) => {
     const leftBase = { x: -halfWidth, y: 0, z: zPosition };
@@ -1813,26 +1699,59 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
     const rightBase = { x: halfWidth, y: 0, z: zPosition };
     const rightKnee = { x: halfWidth, y: sideWallHeight, z: zPosition };
     const apex = { x: 0, y: totalHeight, z: zPosition };
-
-    return [
-      [leftBase, leftKnee],
-      [leftKnee, apex],
-      [apex, rightKnee],
-      [rightKnee, rightBase],
-      [leftBase, rightBase],
-    ].map((line) => line.map((point) => projectScenePoint(point)));
+    return [[leftBase, leftKnee], [leftKnee, apex], [apex, rightKnee], [rightKnee, rightBase], [leftBase, rightBase]].map((line) => line.map((point) => projectScenePoint(point)));
   });
-
   const floorStructureLines = !includeConcreteSlab
-    ? [
-      [frontLeftBottom, backLeftBottom],
-      [frontRightBottom, backRightBottom],
-      ...frameZPositions.map((zPosition) => [
-        { x: -halfWidth, y: 0.02, z: zPosition },
-        { x: halfWidth, y: 0.02, z: zPosition },
-      ]),
-    ].map((line) => line.map((point) => projectScenePoint(point)))
+    ? [[frontLeftBottom, backLeftBottom], [frontRightBottom, backRightBottom], ...frameZPositions.map((zPosition) => ([{ x: -halfWidth, y: 0.02, z: zPosition }, { x: halfWidth, y: 0.02, z: zPosition }]))].map((line) => line.map((point) => projectScenePoint(point)))
     : [];
+  const allProjectedPoints = [
+    ...faces.flatMap((face) => face.projected),
+    ...frontWoodFace,
+    ...(loftPolygon ?? []),
+    ...doorPolygon,
+    ...doorGlassPolygon,
+    ...frontGlazingPolygons.flat(),
+    ...backGlazingPolygons.flat(),
+    ...loftEdgeLines.flat(),
+    ...railingLines.flat(),
+    ...ladderLines.flat(),
+    ...rafterLines.flat(),
+    ...floorStructureLines.flat(),
+  ];
+
+  return {
+    roofRise,
+    faces,
+    frontWoodFace,
+    showFrontGlazing,
+    showBackGlazing,
+    frontGlazingPolygons,
+    backGlazingPolygons,
+    doorPolygon,
+    doorGlassPolygon,
+    loftPolygon,
+    loftEdgeLines,
+    railingLines,
+    ladderLines,
+    rafterLines,
+    floorStructureLines,
+    allProjectedPoints,
+  };
+}
+
+function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLength, glazingStage, loftFloorHeight, loftDeckWidth, loftDeckLength, balconyMargin, frontWallOffset, backWallOffset, includeLoft, includeBalcony, frameCount, actualSpacing, includeConcreteSlab, ladderOffset, ladderTopInset, ladderRun }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingStage: number; loftFloorHeight: number; loftDeckWidth: number; loftDeckLength: number; balconyMargin: number; frontWallOffset: number; backWallOffset: number; includeLoft: boolean; includeBalcony: boolean; frameCount: number; actualSpacing: number; includeConcreteSlab: boolean; ladderOffset: number; ladderTopInset: number; ladderRun: number }) {
+  const defaultYaw = -0.72;
+  const defaultPitch = 0.28;
+  const defaultZoom = 16;
+  const [yaw, setYaw] = useState(defaultYaw);
+  const [pitch, setPitch] = useState(defaultPitch);
+  const [zoom, setZoom] = useState(defaultZoom);
+  const [dragState, setDragState] = useState<DragState>({ active: false, lastX: 0, lastY: 0 });
+  const roofRise = Math.max(totalHeight - sideWallHeight, 0.6);
+  const maxDimension = Math.max(width, cabinLength, totalHeight, 2.8);
+  const fitScale = clamp(2.4 / maxDimension, 0.22, 0.72);
+  const sceneScale = fitScale * zoom * 0.32;
+  const scene = buildProjectedCabinScene({ width, totalHeight, sideWallHeight, cabinLength, glazingStage, loftFloorHeight, loftDeckWidth, loftDeckLength, balconyMargin, frontWallOffset, backWallOffset, includeLoft, includeBalcony, frameCount, actualSpacing, includeConcreteSlab, ladderOffset, ladderTopInset, ladderRun, yaw, pitch, scale: sceneScale });
 
   function handlePointerDown(event: React.PointerEvent<SVGSVGElement>) {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1886,10 +1805,10 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
         onPointerLeave={() => setDragState((current) => ({ ...current, active: false }))}
       >
         <rect x="0" y="0" width="420" height="320" rx="24" fill="rgba(255,252,246,0.25)" />
-        {faces.map((face, index) => (
+        {scene.faces.map((face, index) => (
           <polygon key={`${face.fill}-${index}`} points={polygonPoints(face.projected)} fill={face.fill} stroke={face.stroke} strokeWidth="2.4" />
         ))}
-        {floorStructureLines.map((line, index) => (
+        {scene.floorStructureLines.map((line, index) => (
           <line
             key={`floor-line-${index}`}
             x1={line[0].x}
@@ -1901,7 +1820,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
             opacity="0.9"
           />
         ))}
-        {rafterLines.map((line, index) => (
+        {scene.rafterLines.map((line, index) => (
           <line
             key={`rafter-line-${index}`}
             x1={line[0].x}
@@ -1913,7 +1832,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
             opacity="0.95"
           />
         ))}
-        {railingLines.map((line, index) => (
+        {scene.railingLines.map((line, index) => (
           <line
             key={`railing-line-${index}`}
             x1={line[0].x}
@@ -1925,7 +1844,7 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
             opacity="0.95"
           />
         ))}
-        {ladderLines.map((line, index) => (
+        {scene.ladderLines.map((line, index) => (
           <line
             key={`ladder-line-${index}`}
             x1={line[0].x}
@@ -1937,11 +1856,11 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
             opacity="0.95"
           />
         ))}
-        <polygon points={polygonPoints(frontWoodFace)} fill="rgba(214, 187, 147, 0.88)" stroke="rgba(108, 69, 38, 0.35)" strokeWidth="1.2" />
-        {loftPolygon ? <polygon points={polygonPoints(loftPolygon)} fill="rgba(241, 214, 161, 0.82)" stroke="#7f5d3b" strokeWidth="2" /> : null}
-        <polygon points={polygonPoints(doorPolygon)} fill="rgba(120, 86, 53, 0.22)" stroke="#2f1f14" strokeWidth="1.8" />
-        <polygon points={polygonPoints(doorGlassPolygon)} fill="none" stroke="rgba(47, 31, 20, 0.45)" strokeWidth="1.1" />
-        {loftEdgeLines.map((line, index) => (
+        <polygon points={polygonPoints(scene.frontWoodFace)} fill="rgba(214, 187, 147, 0.88)" stroke="rgba(108, 69, 38, 0.35)" strokeWidth="1.2" />
+        {scene.loftPolygon ? <polygon points={polygonPoints(scene.loftPolygon)} fill="rgba(241, 214, 161, 0.82)" stroke="#7f5d3b" strokeWidth="2" /> : null}
+        <polygon points={polygonPoints(scene.doorPolygon)} fill="rgba(120, 86, 53, 0.22)" stroke="#2f1f14" strokeWidth="1.8" />
+        <polygon points={polygonPoints(scene.doorGlassPolygon)} fill="none" stroke="rgba(47, 31, 20, 0.45)" strokeWidth="1.1" />
+        {scene.loftEdgeLines.map((line, index) => (
           <line
             key={`loft-line-${index}`}
             x1={line[0].x}
@@ -1953,10 +1872,10 @@ function InteractiveCabinPreview({ width, totalHeight, sideWallHeight, cabinLeng
             strokeDasharray={index < 2 ? '4 5' : undefined}
           />
         ))}
-        {showBackGlazing ? backGlazingPolygons.map((polygon, index) => (
+        {scene.showBackGlazing ? scene.backGlazingPolygons.map((polygon, index) => (
           <polygon key={`back-glass-${index}`} points={polygonPoints(polygon)} fill="rgba(124, 196, 216, 0.34)" stroke="#1f5f75" strokeWidth="1.4" />
         )) : null}
-        {showFrontGlazing ? frontGlazingPolygons.map((polygon, index) => (
+        {scene.showFrontGlazing ? scene.frontGlazingPolygons.map((polygon, index) => (
           <polygon key={`front-glass-${index}`} points={polygonPoints(polygon)} fill="rgba(124, 196, 216, 0.68)" stroke="#1f5f75" strokeWidth="2" />
         )) : null}
         <text x="20" y="284">Width {formatValue(width, 2)}</text>
