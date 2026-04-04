@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camping Area 3D Viewer</title>
+    <style>
+        :root {
+            --sky: #d7e6d1;
+            --panel: rgba(249, 245, 236, 0.92);
+            --ink: #233126;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: radial-gradient(circle at 30% 20%, #e5eee2 0%, #c8d9cb 45%, #95b09f 100%);
+            font-family: Georgia, "Times New Roman", serif;
+        }
+
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: var(--panel);
+            padding: 16px 20px;
+            border-radius: 14px;
+            box-shadow: 0 12px 36px rgba(17, 29, 20, 0.16);
+            color: var(--ink);
+            max-width: 360px;
+            z-index: 1;
+        }
+
+        #info h1 {
+            margin: 0 0 6px 0;
+            font-size: 1.15rem;
+            letter-spacing: 0.04em;
+        }
+
+        #info p {
+            margin: 0.3rem 0;
+            font-size: 0.94rem;
+            line-height: 1.35;
+        }
+
+        #loading {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            color: white;
+            font-size: 1.35rem;
+            background: linear-gradient(135deg, rgba(40, 61, 45, 0.25), rgba(25, 38, 29, 0.48));
+            z-index: 2;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="loading">Loading sine-line layout...</div>
+    <div id="info">
+        <h1>Camping Masterplan</h1>
+        <p>Cabins now follow a soft sine-like line and face the shared interior.</p>
+        <p>The circular center is removed and replaced with a small brown footpath.</p>
+        <p>Site dimensions remain 50 m by 21 m.</p>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        const layout = {"site":{"width":50.0,"height":21.0,"center_tree":{"x":10.0,"y":-1.5,"trunk_radius":0.45,"canopy_radius":2.6},"interior_focus":[1.5,-0.3],"path_width":1.2,"road_width":4.0},"cabins":[{"name":"C1","center_x":-8.8,"center_y":1.2,"front_deg":-8.286,"footprint":[[-11.1394,-0.9857],[-10.4188,3.9621],[-6.4606,3.3857],[-7.1812,-1.5621]],"deck":[[-12.9206,-0.7263],[-12.2001,4.2215],[-10.4188,3.9621],[-11.1394,-0.9857]]},{"name":"C2","center_x":-4.8,"center_y":3.0,"front_deg":-27.646,"footprint":[[-7.7317,1.7134],[-5.4116,6.1426],[-1.8683,4.2866],[-4.1884,-0.1426]],"deck":[[-9.3262,2.5486],[-7.0061,6.9778],[-5.4116,6.1426],[-7.7317,1.7134]]},{"name":"C3","center_x":-0.8,"center_y":4.0,"front_deg":-61.858,"footprint":[[-3.9478,4.5844],[0.4612,6.9427],[2.3478,3.4156],[-2.0612,1.0573]],"deck":[[-4.7967,6.1717],[-0.3878,8.5299],[0.4612,6.9427],[-3.9478,4.5844]]},{"name":"C4","center_x":3.2,"center_y":3.0,"front_deg":-117.255,"footprint":[[1.8935,5.9228],[6.3383,3.6331],[4.5065,0.0772],[0.0617,2.3669]],"deck":[[2.7178,7.523],[7.1627,5.2332],[6.3383,3.6331],[1.8935,5.9228]]},{"name":"C5","center_x":7.2,"center_y":1.2,"front_deg":-165.256,"footprint":[[8.4979,4.1267],[9.7704,-0.7087],[5.9021,-1.7267],[4.6296,3.1087]],"deck":[[10.2386,4.5848],[11.5111,-0.2506],[9.7704,-0.7087],[8.4979,4.1267]]},{"name":"C6","center_x":11.2,"center_y":-1.0,"front_deg":175.872,"footprint":[[13.3748,1.3496],[13.0149,-3.6375],[9.0252,-3.3496],[9.3851,1.6375]],"deck":[[15.1701,1.22],[14.8102,-3.767],[13.0149,-3.6375],[13.3748,1.3496]]}],"container":{"name":"CT1","center_x":-16.0,"center_y":3.5,"width":8.0,"depth":6.0,"top_left":[-20.0,6.5],"footprint":[[-20.0,0.5],[-12.0,0.5],[-12.0,6.5],[-20.0,6.5]]},"road_segments":[{"name":"north","footprint":[[-25.0,6.5],[25.0,6.5],[25.0,10.5],[-25.0,10.5]]},{"name":"east","footprint":[[21.0,-10.5],[25.0,-10.5],[25.0,10.5],[21.0,10.5]]},{"name":"south","footprint":[[-25.0,-10.5],[25.0,-10.5],[25.0,-6.5],[-25.0,-6.5]]}],"foot_path":[[-10.5,-0.4],[-8.0,0.6],[-5.5,1.2],[-3.0,0.7],[-0.5,-0.2],[2.0,-0.8],[4.5,-0.5],[7.0,-0.9],[10.0,-1.8]],"notes":{"description":"Organic sine-line cabin arrangement inside a 50 x 21 m lot, clear of the perimeter road.","assumption":"Cabins face the shared interior focus rather than a circular center."}};
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xd7e6d1);
+        scene.fog = new THREE.FogExp2(0xd7e6d1, 0.01);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 300);
+        camera.position.set(34, 26, 28);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 - 0.05;
+        controls.target.set(0, 1.4, 0);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.76);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xfff0d0, 1.25);
+        sunLight.position.set(28, 40, 16);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.left = -35;
+        sunLight.shadow.camera.right = 35;
+        sunLight.shadow.camera.top = 25;
+        sunLight.shadow.camera.bottom = -25;
+        scene.add(sunLight);
+
+        const matGround = new THREE.MeshStandardMaterial({ color: 0x738b5b, roughness: 1.0 });
+        const matRoad = new THREE.MeshStandardMaterial({ color: 0x98938a, roughness: 0.95 });
+        const matPath = new THREE.MeshStandardMaterial({ color: 0x9c6f43, roughness: 1.0 });
+        const matDeck = new THREE.MeshStandardMaterial({ color: 0xb98d60, roughness: 0.9 });
+        const matCabin = new THREE.MeshStandardMaterial({ color: 0x815736, roughness: 0.82 });
+        const matContainer = new THREE.MeshStandardMaterial({ color: 0xbfc7c9, roughness: 0.7, metalness: 0.28 });
+        const matRoof = new THREE.MeshStandardMaterial({ color: 0x2d2926, roughness: 0.72 });
+        const matGlass = new THREE.MeshStandardMaterial({ color: 0xb7d7d3, emissive: 0x26443e, emissiveIntensity: 0.3 });
+        const matTreeTrunk = new THREE.MeshStandardMaterial({ color: 0x60412d, roughness: 1.0 });
+        const matTreeLeaf = new THREE.MeshStandardMaterial({ color: 0x3f6b38, roughness: 1.0 });
+
+        const ground = new THREE.Mesh(new THREE.PlaneGeometry(layout.site.width, layout.site.height), matGround);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        const border = new THREE.LineSegments(
+            new THREE.EdgesGeometry(new THREE.PlaneGeometry(layout.site.width, layout.site.height)),
+            new THREE.LineBasicMaterial({ color: 0xf2f1e9, transparent: true, opacity: 0.6 })
+        );
+        border.rotation.x = -Math.PI / 2;
+        border.position.y = 0.06;
+        scene.add(border);
+
+        function makeRectangle(points, material, y = 0.03) {
+            const shape = new THREE.Shape();
+            shape.moveTo(points[0][0], points[0][1]);
+            for (let index = 1; index < points.length; index += 1) {
+                shape.lineTo(points[index][0], points[index][1]);
+            }
+            shape.closePath();
+            const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), material);
+            mesh.rotation.x = -Math.PI / 2;
+            mesh.position.y = y;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            return mesh;
+        }
+
+        function makePath(points, width, material, y) {
+            const curve = new THREE.CatmullRomCurve3(points.map(([x, z]) => new THREE.Vector3(x, y, z)));
+            const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(40, points.length * 10), width / 2, 12, false), material);
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+            return mesh;
+        }
+
+        function rotationFromFront(frontDeg) {
+            return Math.PI / 2 - frontDeg * Math.PI / 180;
+        }
+
+        function addCabin(cabin) {
+            const group = new THREE.Group();
+            group.position.set(cabin.center_x, 0, cabin.center_y);
+            group.rotation.y = rotationFromFront(cabin.front_deg);
+
+            const body = new THREE.Mesh(new THREE.BoxGeometry(5, 3.1, 4), matCabin);
+            body.position.y = 1.55;
+            body.castShadow = true;
+            body.receiveShadow = true;
+            group.add(body);
+
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.28, 4.6), matRoof);
+            roof.position.set(0, 3.35, 0.05);
+            roof.rotation.x = -0.08;
+            roof.castShadow = true;
+            group.add(roof);
+
+            const frontGlass = new THREE.Mesh(new THREE.PlaneGeometry(3.1, 1.8), matGlass);
+            frontGlass.position.set(0, 1.8, -2.01);
+            group.add(frontGlass);
+
+            const deck = new THREE.Mesh(new THREE.BoxGeometry(5, 0.22, 1.8), matDeck);
+            deck.position.set(0, 0.12, -2.9);
+            deck.castShadow = true;
+            deck.receiveShadow = true;
+            group.add(deck);
+
+            scene.add(group);
+            makeRectangle(cabin.deck, matDeck, 0.03);
+        }
+
+        function addContainer(container) {
+            const group = new THREE.Group();
+            group.position.set(container.center_x, 0, container.center_y);
+
+            const body = new THREE.Mesh(new THREE.BoxGeometry(container.width, 3, container.depth), matContainer);
+            body.position.y = 1.5;
+            body.castShadow = true;
+            body.receiveShadow = true;
+            group.add(body);
+
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(container.width + 0.2, 0.18, container.depth + 0.2), matRoof);
+            roof.position.y = 3.12;
+            roof.castShadow = true;
+            group.add(roof);
+
+            scene.add(group);
+        }
+
+        function addTree(x, z, scale = 1) {
+            const group = new THREE.Group();
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.35 * scale, 0.52 * scale, 3 * scale, 7), matTreeTrunk);
+            trunk.position.y = 1.5 * scale;
+            trunk.castShadow = true;
+            trunk.receiveShadow = true;
+            group.add(trunk);
+
+            const canopy = new THREE.Mesh(new THREE.IcosahedronGeometry(2.2 * scale, 1), matTreeLeaf);
+            canopy.position.y = 4.2 * scale;
+            canopy.castShadow = true;
+            canopy.receiveShadow = true;
+            group.add(canopy);
+
+            const canopy2 = new THREE.Mesh(new THREE.IcosahedronGeometry(1.5 * scale, 1), matTreeLeaf);
+            canopy2.position.set(1.0 * scale, 5.0 * scale, 0.5 * scale);
+            canopy2.castShadow = true;
+            group.add(canopy2);
+
+            group.position.set(x, 0, z);
+            scene.add(group);
+        }
+
+        layout.road_segments.forEach((segment) => makeRectangle(segment.footprint, matRoad, 0.02));
+        makePath(layout.foot_path, layout.site.path_width, matPath, 0.05);
+        layout.cabins.forEach(addCabin);
+        addContainer(layout.container);
+        addTree(layout.site.center_tree.x, layout.site.center_tree.y, 1.1);
+        [[-16, -4.8, 0.8], [18, 4.8, 0.75], [18, -5.4, 0.8], [-10, 5.0, 0.7]].forEach(([x, z, scale]) => addTree(x, z, scale));
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        document.getElementById('loading').style.display = 'none';
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
