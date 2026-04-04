@@ -20,7 +20,9 @@ type PlannerInputs = {
   availableWoodDepth: number;
   availableWoodLength: number;
   roofBoardingThickness: number;
+  stockCostPerPiece: number;
   woodCostPerCubic: number;
+  roofCostPerSquare: number;
   panelCostPerSquare: number;
   glassCostPerSquare: number;
 };
@@ -93,9 +95,10 @@ type PlannerMetrics = {
   roofWallScrewCount: number;
   wallFloorScrewLengthMm: number;
   wallFloorScrewCount: number;
-  woodCostEstimate: number;
+  stockCostEstimate: number;
   panelCostEstimate: number;
-  glassCostEstimate: number;
+  roofBoardingCostEstimate: number;
+  roofCostEstimate: number;
   shellCostEstimate: number;
   recommendedSection: SectionRule;
   availableSectionAdequate: boolean;
@@ -187,10 +190,12 @@ const defaultInputs: PlannerInputs = {
   totalHeightBase: 2.5,
   availableWoodWidth: 0.07,
   availableWoodDepth: 0.15,
-  availableWoodLength: 4.8,
+  availableWoodLength: 5,
   roofBoardingThickness: 0.02,
+  stockCostPerPiece: 50,
   woodCostPerCubic: 950,
-  panelCostPerSquare: 42,
+  roofCostPerSquare: 30,
+  panelCostPerSquare: 80,
   glassCostPerSquare: 180,
 };
 
@@ -671,16 +676,18 @@ function addPdfPlan(doc: jsPDF, title: string, x: number, y: number, width: numb
   }
 
   doc.setFontSize(9);
-  doc.text(`Width ${formatLength(width, unitSystem)}`, centerX, y + 56, { align: 'center' });
-  doc.text(`Length ${formatLength(length, unitSystem)}`, centerX, y + 62, { align: 'center' });
+  doc.text(`Width ${formatLength(width, unitSystem)} | Length ${formatLength(length, unitSystem)}`, centerX, y + 58, { align: 'center' });
 }
 
 function addPdfAnchorPlan(doc: jsPDF, x: number, y: number, width: number, length: number, anchorPoints: { x: number; y: number }[], anchorSpacingX: number, anchorSpacingY: number, unitSystem: UnitSystem) {
   const boxWidth = 70;
   const boxHeight = 42;
-  const scale = Math.min(boxWidth / Math.max(width, 1), boxHeight / Math.max(length, 1));
-  const drawWidth = width * scale;
-  const drawHeight = length * scale;
+  const rotateForPage = length > width;
+  const horizontalSpan = rotateForPage ? length : width;
+  const verticalSpan = rotateForPage ? width : length;
+  const scale = Math.min(boxWidth / Math.max(horizontalSpan, 1), boxHeight / Math.max(verticalSpan, 1));
+  const drawWidth = horizontalSpan * scale;
+  const drawHeight = verticalSpan * scale;
   const originX = x + ((boxWidth - drawWidth) / 2);
   const originY = y + 8;
 
@@ -690,13 +697,19 @@ function addPdfAnchorPlan(doc: jsPDF, x: number, y: number, width: number, lengt
   doc.rect(originX, originY, drawWidth, drawHeight);
   doc.setFillColor(31, 95, 117);
   anchorPoints.forEach((anchorPoint) => {
-    const pointX = originX + ((width > 0 ? anchorPoint.x / width : 0) * drawWidth);
-    const pointY = originY + ((length > 0 ? anchorPoint.y / length : 0) * drawHeight);
+    const normalizedX = rotateForPage
+      ? (length > 0 ? anchorPoint.y / length : 0)
+      : (width > 0 ? anchorPoint.x / width : 0);
+    const normalizedY = rotateForPage
+      ? 1 - (width > 0 ? anchorPoint.x / width : 0)
+      : (length > 0 ? anchorPoint.y / length : 0);
+    const pointX = originX + (normalizedX * drawWidth);
+    const pointY = originY + (normalizedY * drawHeight);
     doc.circle(pointX, pointY, 1, 'F');
   });
   doc.setFontSize(9);
   doc.text(`${anchorPoints.length} anchors total`, x, y + 56);
-  doc.text(`Grid ${formatLength(anchorSpacingX, unitSystem)} x ${formatLength(anchorSpacingY, unitSystem)}`, x, y + 62);
+  doc.text(`Grid ${formatLength(rotateForPage ? anchorSpacingY : anchorSpacingX, unitSystem)} x ${formatLength(rotateForPage ? anchorSpacingX : anchorSpacingY, unitSystem)}`, x, y + 62);
 }
 
 function drawPdfFilledPolygon(doc: jsPDF, points: { x: number; y: number }[], fill: [number, number, number], stroke: [number, number, number], lineWidth = 0.5) {
@@ -1253,10 +1266,9 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
   const stockUnit = unitSystem === 'metric' ? 'mm' : 'in';
 
   doc.setFontSize(22);
-  doc.text('A-Frame Cabin Plan Export', 14, 18);
+  doc.text(`A-Frame Cabin Plan Export (${unitSystem === 'metric' ? 'Metric' : 'Imperial'})`, 14, 18);
   doc.setFontSize(10);
   doc.text(`Units: ${unitSystem === 'metric' ? 'Metric' : 'Imperial'}`, 14, 26);
-  doc.text('Generated from the current planner values.', 14, 31);
 
   const summaryRows = [
     ['Ground width', formatLength(inputs.groundWidth, unitSystem)],
@@ -1283,13 +1295,14 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
     ['Recommended section (pine wood)', getSectionLabel(metrics.recommendedSection, unitSystem)],
     ['Available stock', `${formatValue(stockWidth, unitSystem === 'metric' ? 0 : 2)} x ${formatValue(stockDepth, unitSystem === 'metric' ? 0 : 2)} ${stockUnit}`],
     ['Stock length', stockLengthAdequateText(metrics.stockLengthAdequate)],
-    ['Wood cost', formatCurrency(metrics.woodCostEstimate)],
+    ['Stock cost', formatCurrency(metrics.stockCostEstimate)],
     ['Panel cost', formatCurrency(metrics.panelCostEstimate)],
-    ['Glass cost', formatCurrency(metrics.glassCostEstimate)],
+    ['Roof boarding cost', formatCurrency(metrics.roofBoardingCostEstimate)],
+    ['Roof finish cost', formatCurrency(metrics.roofCostEstimate)],
     ['Shell estimate', formatCurrency(metrics.shellCostEstimate)],
   ];
 
-  let y = 42;
+  let y = 38;
   summaryRows.forEach(([label, value], index) => {
     const rowX = index % 2 === 0 ? 14 : 108;
     const valueX = rowX + 86;
@@ -1308,7 +1321,7 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
     70 / Math.max(inputs.groundWidth, metrics.loftDeckWidth, 1),
     42 / Math.max(metrics.groundFloorLength, metrics.loftDeckLength, 1),
   );
-  addPdfPlan(doc, 'Ground floor', 14, y, inputs.groundWidth, metrics.groundFloorLength, metrics.groundHeadspaceWidth, metrics.enclosedShellLength, metrics.frontTerraceDepth, unitSystem, sharedPlanScale);
+  addPdfPlan(doc, 'Ground floor plan', 14, y, inputs.groundWidth, metrics.groundFloorLength, metrics.groundHeadspaceWidth, metrics.enclosedShellLength, metrics.frontTerraceDepth, unitSystem, sharedPlanScale);
   addPdfPlan(doc, 'Loft plan', 105, y, metrics.loftDeckWidth, metrics.loftDeckLength, metrics.loftHeadspaceWidth, metrics.loftDeckLength, 0, unitSystem, sharedPlanScale);
   addPdfAnchorPlan(doc, 14, y + 78, inputs.groundWidth, inputs.groundLength, metrics.anchorPoints, metrics.anchorSpacingX, metrics.anchorSpacingY, unitSystem);
   doc.setFontSize(9);
@@ -2079,7 +2092,7 @@ export default function App() {
   const glazingRatio = glazingPreset.ratio;
   const wallCladdingArea = roofSurfaceArea + sideWallArea + Math.max(endWallArea - glassArea, 0);
   const floorBoardingArea = (inputs.groundWidth * groundFloorLength) + (inputs.includeLoft ? loftDeckWidth * loftDeckLength : 0);
-  const panelArea = wallCladdingArea;
+  const panelArea = sideWallArea + Math.max(endWallArea - glassArea, 0) + floorBoardingArea;
   const roofBoardingVolume = roofSurfaceArea * inputs.roofBoardingThickness;
 
   const recommendedSection = getRecommendedSection(rafterLength, actualSpacing);
@@ -2109,10 +2122,11 @@ export default function App() {
   const totalWoodVolume = rafterVolume + floorJoistVolume + perimeterBeamVolume + railingVolume;
   const stockPieceCount = Math.max(1, Math.ceil(totalWoodVolume / Math.max(availableSectionArea * inputs.availableWoodLength, 0.0001)));
 
-  const woodCostEstimate = totalWoodVolume * inputs.woodCostPerCubic;
+  const stockCostEstimate = stockPieceCount * inputs.stockCostPerPiece;
   const panelCostEstimate = panelArea * inputs.panelCostPerSquare;
-  const glassCostEstimate = glassArea * inputs.glassCostPerSquare;
-  const shellCostEstimate = woodCostEstimate + panelCostEstimate + glassCostEstimate;
+  const roofBoardingCostEstimate = roofBoardingVolume * inputs.woodCostPerCubic;
+  const roofCostEstimate = roofSurfaceArea * inputs.roofCostPerSquare;
+  const shellCostEstimate = stockCostEstimate + panelCostEstimate + roofBoardingCostEstimate + roofCostEstimate;
   const metrics: PlannerMetrics = {
     groundArea,
     groundHeadspaceArea,
@@ -2162,9 +2176,10 @@ export default function App() {
     roofWallScrewCount,
     wallFloorScrewLengthMm,
     wallFloorScrewCount,
-    woodCostEstimate,
+    stockCostEstimate,
     panelCostEstimate,
-    glassCostEstimate,
+    roofBoardingCostEstimate,
+    roofCostEstimate,
     shellCostEstimate,
     recommendedSection,
     availableSectionAdequate,
@@ -2553,13 +2568,33 @@ export default function App() {
                     onDirtyChange={handleDirtyChange}
                   />
                   <DeferredNumberField
+                    fieldId="stockCostPerPiece"
+                    label="Stock cost (per piece)"
+                    value={inputs.stockCostPerPiece}
+                    commitSignal={commitSignal}
+                    min={0}
+                    step={1}
+                    onCommit={(value) => setInputs({ ...inputs, stockCostPerPiece: value })}
+                    onDirtyChange={handleDirtyChange}
+                  />
+                  <DeferredNumberField
                     fieldId="woodCostPerCubic"
-                    label={`Wood cost (${unitSystem === 'metric' ? 'per m3' : 'per ft3'})`}
+                    label={`Roof boarding wood cost (${unitSystem === 'metric' ? 'per m3' : 'per ft3'})`}
                     value={toDisplayVolumeCost(inputs.woodCostPerCubic, unitSystem)}
                     commitSignal={commitSignal}
                     min={0}
                     step={1}
                     onCommit={(value) => setInputs({ ...inputs, woodCostPerCubic: fromDisplayVolumeCost(value, unitSystem) })}
+                    onDirtyChange={handleDirtyChange}
+                  />
+                  <DeferredNumberField
+                    fieldId="roofCostPerSquare"
+                    label={`Roof finish cost (${unitSystem === 'metric' ? 'per m2' : 'per ft2'})`}
+                    value={toDisplaySurfaceCost(inputs.roofCostPerSquare, unitSystem)}
+                    commitSignal={commitSignal}
+                    min={0}
+                    step={1}
+                    onCommit={(value) => setInputs({ ...inputs, roofCostPerSquare: fromDisplaySurfaceCost(value, unitSystem) })}
                     onDirtyChange={handleDirtyChange}
                   />
                   <DeferredNumberField
@@ -2572,21 +2607,12 @@ export default function App() {
                     onCommit={(value) => setInputs({ ...inputs, panelCostPerSquare: fromDisplaySurfaceCost(value, unitSystem) })}
                     onDirtyChange={handleDirtyChange}
                   />
-                  <DeferredNumberField
-                    fieldId="glassCostPerSquare"
-                    label={`Glass cost (${unitSystem === 'metric' ? 'per m2' : 'per ft2'})`}
-                    value={toDisplaySurfaceCost(inputs.glassCostPerSquare, unitSystem)}
-                    commitSignal={commitSignal}
-                    min={0}
-                    step={1}
-                    onCommit={(value) => setInputs({ ...inputs, glassCostPerSquare: fromDisplaySurfaceCost(value, unitSystem) })}
-                    onDirtyChange={handleDirtyChange}
-                  />
                 </div>
                 <div className="cost-breakdown">
-                  <p>Wood framing <strong>{formatCurrency(woodCostEstimate)}</strong></p>
+                  <p>Stock <strong>{formatCurrency(stockCostEstimate)}</strong></p>
                   <p>Panels <strong>{formatCurrency(panelCostEstimate)}</strong></p>
-                  <p>Glass <strong>{formatCurrency(glassCostEstimate)}</strong></p>
+                  <p>Roof boarding <strong>{formatCurrency(roofBoardingCostEstimate)}</strong></p>
+                  <p>Roof finish <strong>{formatCurrency(roofCostEstimate)}</strong></p>
                   <p>Shell total <strong>{formatCurrency(shellCostEstimate)}</strong></p>
                 </div>
               </div>
