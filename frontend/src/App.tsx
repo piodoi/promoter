@@ -734,10 +734,10 @@ function drawPdfAngleArc(doc: jsPDF, centerX: number, centerY: number, radius: n
 
 function addPdfRenderedViewsPage(doc: jsPDF, metrics: PlannerMetrics, inputs: PlannerInputs) {
   const views = [
-    { title: 'Front isometric', yaw: -0.72, pitch: 0.28, x: 14, y: 34 },
-    { title: 'Back isometric', yaw: 2.35, pitch: 0.28, x: 108, y: 34 },
+    { title: 'Back isometric', yaw: 2.35, pitch: 0.28, x: 14, y: 34 },
+    { title: 'Back raised 45 deg', yaw: 3.14, pitch: 0.78, x: 108, y: 34 },
     { title: 'Top view', yaw: 0, pitch: 1.18, x: 14, y: 136 },
-    { title: 'Front raised 45 deg', yaw: 0, pitch: 0.78, x: 108, y: 136 },
+    { title: 'Back isometric mirrored', yaw: -2.35, pitch: 0.28, x: 108, y: 136 },
   ];
 
   function drawView(viewX: number, viewY: number, title: string, yaw: number, pitch: number) {
@@ -922,7 +922,7 @@ function addPdfFramingSchematicPage(doc: jsPDF, metrics: PlannerMetrics, inputs:
     doc.line(apex.x - 12, loftY, apex.x - 12, leftBase.y);
     doc.line(apex.x - 15, loftY, apex.x - 9, loftY);
     doc.line(apex.x - 15, leftBase.y, apex.x - 9, leftBase.y);
-    doc.text(formatLength(metrics.loftFloorHeight, unitSystem), apex.x - 20, (loftY + leftBase.y) / 2, { angle: 90, align: 'center' });
+    doc.text(formatLength(metrics.loftFloorHeight, unitSystem), apex.x - 24, (loftY + leftBase.y) / 2, { angle: 90, align: 'center' });
   }
 
   if (metrics.sideWallHeight > 0) {
@@ -1591,7 +1591,10 @@ function buildGlazingPreset(stage: number, width: number, totalHeight: number, s
 function buildProjectedCabinScene({ width, totalHeight, sideWallHeight, cabinLength, glazingStage, loftFloorHeight, loftDeckWidth, loftDeckLength, balconyMargin, frontWallOffset, backWallOffset, includeLoft, includeBalcony, frameCount, actualSpacing, includeConcreteSlab, ladderOffset, ladderTopInset, ladderRun, yaw, pitch, scale = 1 }: { width: number; totalHeight: number; sideWallHeight: number; cabinLength: number; glazingStage: number; loftFloorHeight: number; loftDeckWidth: number; loftDeckLength: number; balconyMargin: number; frontWallOffset: number; backWallOffset: number; includeLoft: boolean; includeBalcony: boolean; frameCount: number; actualSpacing: number; includeConcreteSlab: boolean; ladderOffset: number; ladderTopInset: number; ladderRun: number; yaw: number; pitch: number; scale?: number }) {
   const halfWidth = Math.max(width / 2, 0.1);
   const halfLength = Math.max(cabinLength / 2, 0.1);
-  const roofRise = Math.max(totalHeight - sideWallHeight, 0.6);
+  const roofRise = Math.max(totalHeight, 0.6);
+  const wallIntersectionX = sideWallHeight > 0
+    ? halfWidth * clamp(1 - (sideWallHeight / Math.max(totalHeight, 0.001)), 0, 1)
+    : halfWidth;
   const frontApex = { x: 0, y: totalHeight, z: -halfLength };
   const backApex = { x: 0, y: totalHeight, z: halfLength };
   const frontLeftBottom = { x: -halfWidth, y: 0, z: -halfLength };
@@ -1599,21 +1602,21 @@ function buildProjectedCabinScene({ width, totalHeight, sideWallHeight, cabinLen
   const backFloorZ = halfLength - backWallOffset;
   const backLeftBottom = { x: -halfWidth, y: 0, z: backFloorZ };
   const backRightBottom = { x: halfWidth, y: 0, z: backFloorZ };
-  const frontLeftKnee = { x: -halfWidth, y: sideWallHeight, z: -halfLength };
-  const frontRightKnee = { x: halfWidth, y: sideWallHeight, z: -halfLength };
-  const backLeftKnee = { x: -halfWidth, y: sideWallHeight, z: halfLength };
-  const backRightKnee = { x: halfWidth, y: sideWallHeight, z: halfLength };
+  const frontLeftKnee = { x: -wallIntersectionX, y: sideWallHeight, z: -halfLength };
+  const frontRightKnee = { x: wallIntersectionX, y: sideWallHeight, z: -halfLength };
+  const backLeftKnee = { x: -wallIntersectionX, y: sideWallHeight, z: halfLength };
+  const backRightKnee = { x: wallIntersectionX, y: sideWallHeight, z: halfLength };
   const frontWallZ = -halfLength + frontWallOffset;
   const backWallZ = halfLength - backWallOffset;
-  const frontWallLeftBase = { x: -halfWidth, y: 0, z: frontWallZ };
-  const frontWallRightBase = { x: halfWidth, y: 0, z: frontWallZ };
-  const frontWallLeftKnee = { x: -halfWidth, y: sideWallHeight, z: frontWallZ };
-  const frontWallRightKnee = { x: halfWidth, y: sideWallHeight, z: frontWallZ };
+  const frontWallLeftBase = { x: -wallIntersectionX, y: 0, z: frontWallZ };
+  const frontWallRightBase = { x: wallIntersectionX, y: 0, z: frontWallZ };
+  const frontWallLeftKnee = { x: -wallIntersectionX, y: sideWallHeight, z: frontWallZ };
+  const frontWallRightKnee = { x: wallIntersectionX, y: sideWallHeight, z: frontWallZ };
   const frontWallApex = { x: 0, y: totalHeight, z: frontWallZ };
-  const backWallLeftBase = { x: -halfWidth, y: 0, z: backWallZ };
-  const backWallRightBase = { x: halfWidth, y: 0, z: backWallZ };
-  const backWallLeftKnee = { x: -halfWidth, y: sideWallHeight, z: backWallZ };
-  const backWallRightKnee = { x: halfWidth, y: sideWallHeight, z: backWallZ };
+  const backWallLeftBase = { x: -wallIntersectionX, y: 0, z: backWallZ };
+  const backWallRightBase = { x: wallIntersectionX, y: 0, z: backWallZ };
+  const backWallLeftKnee = { x: -wallIntersectionX, y: sideWallHeight, z: backWallZ };
+  const backWallRightKnee = { x: wallIntersectionX, y: sideWallHeight, z: backWallZ };
   const backWallApex = { x: 0, y: totalHeight, z: backWallZ };
   const loftHalfWidth = Math.max(loftDeckWidth / 2, 0.08);
   const loftFrontZ = frontWallZ + balconyMargin;
@@ -1695,14 +1698,20 @@ function buildProjectedCabinScene({ width, totalHeight, sideWallHeight, cabinLen
   const frameZPositions = Array.from({ length: frameCount }, (_, index) => (-halfLength + (actualSpacing * index)));
   const rafterLines = frameZPositions.flatMap((zPosition) => {
     const leftBase = { x: -halfWidth, y: 0, z: zPosition };
-    const leftKnee = { x: -halfWidth, y: sideWallHeight, z: zPosition };
     const rightBase = { x: halfWidth, y: 0, z: zPosition };
-    const rightKnee = { x: halfWidth, y: sideWallHeight, z: zPosition };
     const apex = { x: 0, y: totalHeight, z: zPosition };
-    return [[leftBase, leftKnee], [leftKnee, apex], [apex, rightKnee], [rightKnee, rightBase], [leftBase, rightBase]].map((line) => line.map((point) => projectScenePoint(point)));
+    return [[leftBase, apex], [apex, rightBase], [leftBase, rightBase]].map((line) => line.map((point) => projectScenePoint(point)));
   });
   const floorStructureLines = !includeConcreteSlab
-    ? [[frontLeftBottom, backLeftBottom], [frontRightBottom, backRightBottom], ...frameZPositions.map((zPosition) => ([{ x: -halfWidth, y: 0.02, z: zPosition }, { x: halfWidth, y: 0.02, z: zPosition }]))].map((line) => line.map((point) => projectScenePoint(point)))
+    ? [[frontLeftBottom, backLeftBottom], [frontRightBottom, backRightBottom], ...frameZPositions.flatMap((zPosition) => {
+      const leftBase = { x: -halfWidth, y: 0, z: zPosition };
+      const rightBase = { x: halfWidth, y: 0, z: zPosition };
+      const leftWallBase = { x: -wallIntersectionX, y: 0, z: zPosition };
+      const leftWallTop = { x: -wallIntersectionX, y: sideWallHeight, z: zPosition };
+      const rightWallBase = { x: wallIntersectionX, y: 0, z: zPosition };
+      const rightWallTop = { x: wallIntersectionX, y: sideWallHeight, z: zPosition };
+      return [[leftBase, rightBase], ...(sideWallHeight > 0 ? [[leftWallBase, leftWallTop], [rightWallBase, rightWallTop]] : [])];
+    })].map((line) => line.map((point) => projectScenePoint(point)))
     : [];
   const allProjectedPoints = [
     ...faces.flatMap((face) => face.projected),
@@ -1991,7 +2000,7 @@ export default function App() {
     : 0;
   const recommendedLoftFloorHeight = inputs.includeLoft ? 2.2 : 0;
   const recommendedTotalHeight = inputs.includeLoft
-    ? Math.max(recommendedLoftFloorHeight + inputs.minimumLoftHeadroom + 0.55, recommendedSideWallHeight + (inputs.groundWidth * 0.62))
+    ? Math.max(recommendedLoftFloorHeight + inputs.minimumLoftHeadroom + 0.55, inputs.groundWidth * 0.62)
     : inputs.totalHeightBase;
   const recommendedSpacing = 0.6;
   const anchorSpacingMin = inputs.includeConcreteSlab ? 1.5 : 1;
@@ -2002,12 +2011,14 @@ export default function App() {
     ? scaleFromRecommendation(recommendedSideWallHeight, sliderOffsets.sideWallHeight, 0, Math.max(totalHeight - 0.6, 0.1))
     : 0;
   const maxLoftFloorHeight = Math.max(totalHeight - inputs.minimumLoftHeadroom - 0.3, 2.0);
+  const loftFloorBaseHeight = Math.min(recommendedLoftFloorHeight, maxLoftFloorHeight);
   const loftFloorHeight = inputs.includeLoft
-    ? scaleFromRecommendation(Math.min(recommendedLoftFloorHeight, maxLoftFloorHeight), sliderOffsets.loftFloorHeight, 2.0, maxLoftFloorHeight)
+    ? clamp(loftFloorBaseHeight + ((sliderOffsets.loftFloorHeight / 100) * (loftFloorBaseHeight * 0.3)), 2.0, maxLoftFloorHeight)
     : 0;
   const rafterSpacing = scaleFromRecommendation(recommendedSpacing, sliderOffsets.rafterSpacing, 0.3, 1);
   const glazingStage = clamp(Math.round(sliderOffsets.glazingRatio), 0, 6);
-  const roofRise = Math.max(totalHeight - sideWallHeight, 0.6);
+  const roofRise = Math.max(totalHeight, 0.6);
+  const wallCapRise = Math.max(totalHeight - sideWallHeight, 0.6);
   const halfSpan = inputs.groundWidth / 2;
   const rafterLength = Math.sqrt((halfSpan * halfSpan) + (roofRise * roofRise));
   const fullRafterLength = Math.sqrt((halfSpan * halfSpan) + (totalHeight * totalHeight));
@@ -2021,19 +2032,15 @@ export default function App() {
   const enclosedShellLength = Math.max(inputs.groundLength - frontTerraceDepth - backRecessDepth, actualSpacing * 2);
   const groundFloorLength = Math.max(inputs.groundLength - backRecessDepth, actualSpacing * 2);
   const balconyMargin = inputs.includeLoft && inputs.includeBalcony ? 3 * actualSpacing : 0;
-  const groundHeadspaceWidth = inputs.groundWidth * clamp(1 - ((Math.max(1.7 - sideWallHeight, 0)) / roofRise), 0, 1);
+  const groundHeadspaceWidth = inputs.groundWidth * clamp(1 - (1.7 / roofRise), 0, 1);
   const loftDeckWidth = inputs.includeLoft
-    ? (loftFloorHeight <= sideWallHeight ? inputs.groundWidth : inputs.groundWidth * clamp(1 - ((loftFloorHeight - sideWallHeight) / roofRise), 0, 1))
+    ? inputs.groundWidth * clamp(1 - (loftFloorHeight / roofRise), 0, 1)
     : 0;
   const loftHeadspaceWidth = inputs.includeLoft
-    ? (loftFloorHeight + 1.7 <= sideWallHeight
-      ? inputs.groundWidth
-      : inputs.groundWidth * clamp(1 - (((loftFloorHeight + 1.7) - sideWallHeight) / roofRise), 0, 1))
+    ? inputs.groundWidth * clamp(1 - ((loftFloorHeight + 1.7) / roofRise), 0, 1)
     : 0;
   const loftUsableWidth = inputs.includeLoft
-    ? (loftFloorHeight + inputs.minimumLoftHeadroom <= sideWallHeight
-      ? inputs.groundWidth
-      : inputs.groundWidth * clamp(1 - (((loftFloorHeight + inputs.minimumLoftHeadroom) - sideWallHeight) / roofRise), 0, 1))
+    ? inputs.groundWidth * clamp(1 - ((loftFloorHeight + inputs.minimumLoftHeadroom) / roofRise), 0, 1)
     : 0;
   const loftDeckLength = inputs.includeLoft ? Math.max(enclosedShellLength - balconyMargin, 0.6) : 0;
   const groundHeadspaceArea = groundHeadspaceWidth * enclosedShellLength;
@@ -2066,7 +2073,7 @@ export default function App() {
     : 0;
   const roofSurfaceArea = 2 * rafterLength * enclosedShellLength;
   const sideWallArea = 2 * enclosedShellLength * sideWallHeight;
-  const endWallArea = ((inputs.groundWidth * sideWallHeight) + (0.5 * inputs.groundWidth * roofRise)) * 2;
+  const endWallArea = ((inputs.groundWidth * sideWallHeight) + (0.5 * inputs.groundWidth * wallCapRise)) * 2;
   const glazingPreset = buildGlazingPreset(glazingStage, inputs.groundWidth, totalHeight, sideWallHeight);
   const glassArea = glazingPreset.glassArea;
   const glazingRatio = glazingPreset.ratio;
