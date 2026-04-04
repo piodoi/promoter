@@ -70,6 +70,7 @@ type PlannerMetrics = {
   frameCount: number;
   rafterCount: number;
   floorJoistCount: number;
+  connectorBraceCount: number;
   perimeterBeamCount: number;
   stockPieceCount: number;
   actualSpacing: number;
@@ -1288,6 +1289,7 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
     ['Timber volume', formatVolume(metrics.totalWoodVolume, unitSystem)],
     ['Rafter count', `${metrics.rafterCount} pcs`],
     ['Base ties / floor joists', `${metrics.floorJoistCount} pcs`],
+    ['Connector braces @ 2 m', `${metrics.connectorBraceCount} pcs`],
     ['Estimated stock pieces', `${metrics.stockPieceCount} pcs`],
     ['Apex screws total', `${metrics.apexScrewCount} pcs @ ${formatValue(metrics.apexScrewLengthMm, 0)} x ${formatValue(metrics.apexScrewDiameterMm, 0)} mm`],
     ['Roof-wall screws total', `${metrics.roofWallScrewCount} pcs @ ${formatValue(metrics.roofWallScrewLengthMm, 0)} mm`],
@@ -1296,7 +1298,7 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
     ['Available stock', `${formatValue(stockWidth, unitSystem === 'metric' ? 0 : 2)} x ${formatValue(stockDepth, unitSystem === 'metric' ? 0 : 2)} ${stockUnit}`],
     ['Stock length', stockLengthAdequateText(metrics.stockLengthAdequate)],
     ['Stock cost', formatCurrency(metrics.stockCostEstimate)],
-    ['Panel cost', formatCurrency(metrics.panelCostEstimate)],
+    ['Wall and floor panel cost', formatCurrency(metrics.panelCostEstimate)],
     ['Roof boarding cost', formatCurrency(metrics.roofBoardingCostEstimate)],
     ['Roof finish cost', formatCurrency(metrics.roofCostEstimate)],
     ['Shell estimate', formatCurrency(metrics.shellCostEstimate)],
@@ -2116,10 +2118,13 @@ export default function App() {
   const widthAxis = widthAxisGrid.positions;
   const anchorPoints = floorAxis.flatMap((y) => widthAxis.map((x) => ({ x, y })));
   const floorJoistCount = frameCount;
+  const connectorRows = Math.max(1, Math.ceil(inputs.groundLength / 2));
+  const connectorBraceCount = connectorRows * 2;
   const perimeterBeamCount = inputs.includeConcreteSlab ? 0 : 4;
   const floorJoistVolume = frameCount * inputs.groundWidth * availableSectionArea;
+  const connectorBraceVolume = connectorBraceCount * actualSpacing * availableSectionArea;
   const perimeterBeamVolume = inputs.includeConcreteSlab ? 0 : ((inputs.groundLength * 2) + (inputs.groundWidth * 2)) * availableSectionArea;
-  const totalWoodVolume = rafterVolume + floorJoistVolume + perimeterBeamVolume + railingVolume;
+  const totalWoodVolume = rafterVolume + floorJoistVolume + connectorBraceVolume + perimeterBeamVolume + railingVolume;
   const stockPieceCount = Math.max(1, Math.ceil(totalWoodVolume / Math.max(availableSectionArea * inputs.availableWoodLength, 0.0001)));
 
   const stockCostEstimate = stockPieceCount * inputs.stockCostPerPiece;
@@ -2151,6 +2156,7 @@ export default function App() {
     frameCount,
     rafterCount,
     floorJoistCount,
+    connectorBraceCount,
     perimeterBeamCount,
     stockPieceCount,
     actualSpacing,
@@ -2498,6 +2504,10 @@ export default function App() {
                 <strong>{floorJoistCount} pcs</strong>
               </div>
               <div>
+                <span>Connector braces @ 2 m</span>
+                <strong>{connectorBraceCount} pcs</strong>
+              </div>
+              <div>
                 <span>Apex screws total</span>
                 <strong>{apexScrewCount} pcs @ {formatValue(apexScrewLengthMm, 0)} x {formatValue(apexScrewDiameterMm, 0)} mm</strong>
               </div>
@@ -2599,7 +2609,7 @@ export default function App() {
                   />
                   <DeferredNumberField
                     fieldId="panelCostPerSquare"
-                    label={`Panel cost (${unitSystem === 'metric' ? 'per m2' : 'per ft2'})`}
+                    label={`Wall and floor panel cost (${unitSystem === 'metric' ? 'per m2' : 'per ft2'})`}
                     value={toDisplaySurfaceCost(inputs.panelCostPerSquare, unitSystem)}
                     commitSignal={commitSignal}
                     min={0}
@@ -2610,7 +2620,7 @@ export default function App() {
                 </div>
                 <div className="cost-breakdown">
                   <p>Stock <strong>{formatCurrency(stockCostEstimate)}</strong></p>
-                  <p>Panels <strong>{formatCurrency(panelCostEstimate)}</strong></p>
+                  <p>Wall panels and floor boarding <strong>{formatCurrency(panelCostEstimate)}</strong></p>
                   <p>Roof boarding <strong>{formatCurrency(roofBoardingCostEstimate)}</strong></p>
                   <p>Roof finish <strong>{formatCurrency(roofCostEstimate)}</strong></p>
                   <p>Shell total <strong>{formatCurrency(shellCostEstimate)}</strong></p>
@@ -2650,6 +2660,10 @@ export default function App() {
               <div>
                 <span>Base ties / floor joists</span>
                 <strong>{floorJoistCount} pcs</strong>
+              </div>
+              <div>
+                <span>Connector braces @ 2 m</span>
+                <strong>{connectorBraceCount} pcs</strong>
               </div>
               <div>
                 <span>Estimated stock pieces</span>
