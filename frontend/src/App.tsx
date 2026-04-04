@@ -647,21 +647,23 @@ function buildDxf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: Un
   ].join('\n');
 }
 
-function addPdfPlan(doc: jsPDF, title: string, x: number, y: number, width: number, length: number, innerWidth: number, innerLength: number, innerOffsetY: number, unitSystem: UnitSystem, sharedScale?: number) {
-  const boxWidth = 70;
-  const boxHeight = 42;
-  const panelWidth = 91;
+function addPdfPlan(doc: jsPDF, title: string, x: number, y: number, width: number, length: number, innerWidth: number, innerLength: number, innerOffsetY: number, unitSystem: UnitSystem, sharedScale?: number, layout?: { boxWidth?: number; boxHeight?: number; panelWidth?: number; titleOffsetY?: number; captionOffsetY?: number }) {
+  const boxWidth = layout?.boxWidth ?? 70;
+  const boxHeight = layout?.boxHeight ?? 42;
+  const panelWidth = layout?.panelWidth ?? 91;
+  const titleOffsetY = layout?.titleOffsetY ?? 0;
+  const captionOffsetY = layout?.captionOffsetY ?? 58;
   const scale = sharedScale ?? Math.min(boxWidth / Math.max(width, 1), boxHeight / Math.max(length, 1));
   const drawWidth = width * scale;
   const drawHeight = length * scale;
   const originX = x + ((panelWidth - drawWidth) / 2);
   const drawingTopY = y + 8;
-  const drawingBottomY = y + 48;
+  const drawingBottomY = drawingTopY + boxHeight;
   const originY = drawingTopY + ((drawingBottomY - drawingTopY - drawHeight) / 2);
   const centerX = x + (panelWidth / 2);
 
   doc.setFontSize(12);
-  doc.text(title, centerX, y, { align: 'center' });
+  doc.text(title, centerX, y + titleOffsetY, { align: 'center' });
   doc.setDrawColor(71, 54, 39);
   doc.rect(originX, originY, drawWidth, drawHeight);
 
@@ -677,40 +679,38 @@ function addPdfPlan(doc: jsPDF, title: string, x: number, y: number, width: numb
   }
 
   doc.setFontSize(9);
-  doc.text(`Width ${formatLength(width, unitSystem)} | Length ${formatLength(length, unitSystem)}`, centerX, y + 58, { align: 'center' });
+  doc.text(`Width ${formatLength(width, unitSystem)} | Length ${formatLength(length, unitSystem)}`, centerX, y + captionOffsetY, { align: 'center' });
 }
 
-function addPdfAnchorPlan(doc: jsPDF, x: number, y: number, width: number, length: number, anchorPoints: { x: number; y: number }[], anchorSpacingX: number, anchorSpacingY: number, unitSystem: UnitSystem) {
-  const boxWidth = 70;
-  const boxHeight = 42;
-  const rotateForPage = length > width;
-  const horizontalSpan = rotateForPage ? length : width;
-  const verticalSpan = rotateForPage ? width : length;
-  const scale = Math.min(boxWidth / Math.max(horizontalSpan, 1), boxHeight / Math.max(verticalSpan, 1));
-  const drawWidth = horizontalSpan * scale;
-  const drawHeight = verticalSpan * scale;
-  const originX = x + ((boxWidth - drawWidth) / 2);
+function addPdfAnchorPlan(doc: jsPDF, x: number, y: number, width: number, length: number, anchorPoints: { x: number; y: number }[], anchorSpacingX: number, anchorSpacingY: number, unitSystem: UnitSystem, sharedScale?: number, layout?: { boxWidth?: number; boxHeight?: number; panelWidth?: number; titleOffsetY?: number; captionLineOneOffsetY?: number; captionLineTwoOffsetY?: number }) {
+  const boxWidth = layout?.boxWidth ?? 70;
+  const boxHeight = layout?.boxHeight ?? 42;
+  const panelWidth = layout?.panelWidth ?? 70;
+  const titleOffsetY = layout?.titleOffsetY ?? 0;
+  const captionLineOneOffsetY = layout?.captionLineOneOffsetY ?? 56;
+  const captionLineTwoOffsetY = layout?.captionLineTwoOffsetY ?? 62;
+  const scale = sharedScale ?? Math.min(boxWidth / Math.max(width, 1), boxHeight / Math.max(length, 1));
+  const drawWidth = width * scale;
+  const drawHeight = length * scale;
+  const originX = x + ((panelWidth - drawWidth) / 2);
   const originY = y + 8;
+  const centerX = x + (panelWidth / 2);
 
   doc.setFontSize(12);
-  doc.text('Anchor layout', x, y);
+  doc.text('Anchor layout', centerX, y + titleOffsetY, { align: 'center' });
   doc.setDrawColor(71, 54, 39);
   doc.rect(originX, originY, drawWidth, drawHeight);
   doc.setFillColor(31, 95, 117);
   anchorPoints.forEach((anchorPoint) => {
-    const normalizedX = rotateForPage
-      ? (length > 0 ? anchorPoint.y / length : 0)
-      : (width > 0 ? anchorPoint.x / width : 0);
-    const normalizedY = rotateForPage
-      ? 1 - (width > 0 ? anchorPoint.x / width : 0)
-      : (length > 0 ? anchorPoint.y / length : 0);
+    const normalizedX = width > 0 ? anchorPoint.x / width : 0;
+    const normalizedY = length > 0 ? anchorPoint.y / length : 0;
     const pointX = originX + (normalizedX * drawWidth);
     const pointY = originY + (normalizedY * drawHeight);
     doc.circle(pointX, pointY, 1, 'F');
   });
   doc.setFontSize(9);
-  doc.text(`${anchorPoints.length} anchors total`, x, y + 56);
-  doc.text(`Grid ${formatLength(rotateForPage ? anchorSpacingY : anchorSpacingX, unitSystem)} x ${formatLength(rotateForPage ? anchorSpacingX : anchorSpacingY, unitSystem)}`, x, y + 62);
+  doc.text(`${anchorPoints.length} anchors total`, centerX, y + captionLineOneOffsetY, { align: 'center' });
+  doc.text(`Grid ${formatLength(anchorSpacingX, unitSystem)} x ${formatLength(anchorSpacingY, unitSystem)}`, centerX, y + captionLineTwoOffsetY, { align: 'center' });
 }
 
 function drawPdfFilledPolygon(doc: jsPDF, points: { x: number; y: number }[], fill: [number, number, number], stroke: [number, number, number], lineWidth = 0.5) {
@@ -1266,69 +1266,136 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
   const stockDepth = unitSystem === 'metric' ? inputs.availableWoodDepth * 1000 : (inputs.availableWoodDepth * 1000) / MM_PER_INCH;
   const stockUnit = unitSystem === 'metric' ? 'mm' : 'in';
 
+  function drawSummaryCard(title: string, rows: Array<[string, string]>, x: number, y: number, width: number, height: number) {
+    const inset = 4;
+    const titleHeight = 8;
+    const columns = 2;
+    const gridRows = Math.max(1, Math.ceil(rows.length / columns));
+    const cellWidth = (width - (inset * 2)) / columns;
+    const gridTop = y + titleHeight + 1;
+    const cellHeight = (height - titleHeight - inset - 1) / gridRows;
+
+    doc.setDrawColor(71, 54, 39);
+    doc.setFillColor(249, 245, 238);
+    doc.roundedRect(x, y, width, height, 3, 3, 'FD');
+    doc.setDrawColor(214, 187, 147);
+    doc.line(x, y + titleHeight, x + width, y + titleHeight);
+    doc.setFontSize(9);
+    doc.setTextColor(71, 54, 39);
+    doc.text(title, x + inset, y + 5.5);
+
+    rows.forEach(([label, value], index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      const cellX = x + inset + (column * cellWidth);
+      const cellY = gridTop + (row * cellHeight);
+      doc.setFontSize(6.8);
+      doc.setTextColor(96, 74, 53);
+      doc.text(label, cellX + 1.5, cellY + 4, { maxWidth: cellWidth - 3 });
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.2);
+      doc.setTextColor(41, 34, 27);
+      doc.text(String(value), cellX + 1.5, cellY + 8.5, { maxWidth: cellWidth - 3 });
+      doc.setFont('helvetica', 'normal');
+    });
+  }
+
   doc.setFontSize(22);
   doc.text(`A-Frame Cabin Plan Export (${unitSystem === 'metric' ? 'Metric' : 'Imperial'})`, 14, 18);
   doc.setFontSize(10);
   doc.text(`Units: ${unitSystem === 'metric' ? 'Metric' : 'Imperial'}`, 14, 26);
 
-  const summaryRows = [
-    ['Ground width', formatLength(inputs.groundWidth, unitSystem)],
-    ['Ground length', formatLength(inputs.groundLength, unitSystem)],
-    ['Ground area', formatArea(metrics.groundArea, unitSystem)],
-    ['Floor 1.7 m zone', formatArea(metrics.groundHeadspaceArea, unitSystem)],
-    ['Total height', formatLength(metrics.totalHeight, unitSystem)],
-    ['Rafter length', formatLength(metrics.rafterLength, unitSystem)],
-    ['Loft usable area', metrics.loftArea > 0 ? formatArea(metrics.loftArea, unitSystem) : 'No loft enabled'],
-    ['Loft 1.7 m zone', metrics.loftArea > 0 ? formatArea(metrics.loftHeadspaceArea, unitSystem) : 'No loft enabled'],
-    ['Roof surfaces', formatArea(metrics.roofSurfaceArea, unitSystem)],
-    ['Side walls', formatArea(metrics.sideWallArea, unitSystem)],
-    ['Glass area', formatArea(metrics.glassArea, unitSystem)],
-    ['Wall and roof cladding', formatArea(metrics.wallCladdingArea, unitSystem)],
-    ['Floor boarding', formatArea(metrics.floorBoardingArea, unitSystem)],
-    [`Roof boarding volume (${formatLength(inputs.roofBoardingThickness, unitSystem)})`, formatVolume(metrics.roofBoardingVolume, unitSystem)],
-    ['Timber volume', formatVolume(metrics.totalWoodVolume, unitSystem)],
-    ['Rafter count', `${metrics.rafterCount} pcs`],
-    ['Base ties / floor joists', `${metrics.floorJoistCount} pcs`],
-    ['Connector braces @ 2 m', `${metrics.connectorBraceCount} pcs`],
-    ['Estimated stock pieces', `${metrics.stockPieceCount} pcs`],
-    ['Apex screws total', `${metrics.apexScrewCount} pcs @ ${formatValue(metrics.apexScrewLengthMm, 0)} x ${formatValue(metrics.apexScrewDiameterMm, 0)} mm`],
-    ['Roof-wall screws total', `${metrics.roofWallScrewCount} pcs @ ${formatValue(metrics.roofWallScrewLengthMm, 0)} mm`],
-    ['Wall-floor screws total', `${metrics.wallFloorScrewCount} pcs @ ${formatValue(metrics.wallFloorScrewLengthMm, 0)} mm`],
-    ['Recommended section (pine wood)', getSectionLabel(metrics.recommendedSection, unitSystem)],
-    ['Available stock', `${formatValue(stockWidth, unitSystem === 'metric' ? 0 : 2)} x ${formatValue(stockDepth, unitSystem === 'metric' ? 0 : 2)} ${stockUnit}`],
-    ['Stock length', stockLengthAdequateText(metrics.stockLengthAdequate)],
-    ['Stock cost', formatCurrency(metrics.stockCostEstimate)],
-    ['Wall and floor panel cost', formatCurrency(metrics.panelCostEstimate)],
-    ['Roof boarding cost', formatCurrency(metrics.roofBoardingCostEstimate)],
-    ['Roof finish cost', formatCurrency(metrics.roofCostEstimate)],
-    ['Shell estimate', formatCurrency(metrics.shellCostEstimate)],
+  const summaryCards: Array<{ title: string; rows: Array<[string, string]> }> = [
+    {
+      title: 'Footprint',
+      rows: [
+        ['Ground width', formatLength(inputs.groundWidth, unitSystem)],
+        ['Ground length', formatLength(inputs.groundLength, unitSystem)],
+        ['Ground area', formatArea(metrics.groundArea, unitSystem)],
+        ['Total height', formatLength(metrics.totalHeight, unitSystem)],
+      ],
+    },
+    {
+      title: 'Space',
+      rows: [
+        ['Floor 1.7 m zone', formatArea(metrics.groundHeadspaceArea, unitSystem)],
+        ['Rafter length', formatLength(metrics.rafterLength, unitSystem)],
+        ['Loft usable area', metrics.loftArea > 0 ? formatArea(metrics.loftArea, unitSystem) : 'No loft enabled'],
+        ['Loft 1.7 m zone', metrics.loftArea > 0 ? formatArea(metrics.loftHeadspaceArea, unitSystem) : 'No loft enabled'],
+      ],
+    },
+    {
+      title: 'Envelope',
+      rows: [
+        ['Roof surfaces', formatArea(metrics.roofSurfaceArea, unitSystem)],
+        ['Side walls', formatArea(metrics.sideWallArea, unitSystem)],
+        ['Glass area', formatArea(metrics.glassArea, unitSystem)],
+        ['Wall and roof cladding', formatArea(metrics.wallCladdingArea, unitSystem)],
+        ['Floor boarding', formatArea(metrics.floorBoardingArea, unitSystem)],
+        [`Roof boarding vol. ${formatLength(inputs.roofBoardingThickness, unitSystem)}`, formatVolume(metrics.roofBoardingVolume, unitSystem)],
+      ],
+    },
+    {
+      title: 'Structure',
+      rows: [
+        ['Timber volume', formatVolume(metrics.totalWoodVolume, unitSystem)],
+        ['Rafter count', `${metrics.rafterCount} pcs`],
+        ['Floor joists', `${metrics.floorJoistCount} pcs`],
+        ['Connectors @ 2 m', `${metrics.connectorBraceCount} pcs @ ${formatLength(0.6, unitSystem)}`],
+        ['Stock pieces', `${metrics.stockPieceCount} pcs`],
+      ],
+    },
+    {
+      title: 'Fixings and Stock',
+      rows: [
+        ['Apex screws', `${metrics.apexScrewCount} pcs @ ${formatValue(metrics.apexScrewLengthMm, 0)} x ${formatValue(metrics.apexScrewDiameterMm, 0)} mm`],
+        ['Roof-wall screws', `${metrics.roofWallScrewCount} pcs @ ${formatValue(metrics.roofWallScrewLengthMm, 0)} mm`],
+        ['Wall-floor screws', `${metrics.wallFloorScrewCount} pcs @ ${formatValue(metrics.wallFloorScrewLengthMm, 0)} mm`],
+        ['Section', getSectionLabel(metrics.recommendedSection, unitSystem)],
+        ['Available stock', `${formatValue(stockWidth, unitSystem === 'metric' ? 0 : 2)} x ${formatValue(stockDepth, unitSystem === 'metric' ? 0 : 2)} ${stockUnit}`],
+        ['Stock length', stockLengthAdequateText(metrics.stockLengthAdequate)],
+      ],
+    },
+    {
+      title: 'Costs',
+      rows: [
+        ['Stock cost', formatCurrency(metrics.stockCostEstimate)],
+        ['Wall and floor panels', formatCurrency(metrics.panelCostEstimate)],
+        ['Roof boarding', formatCurrency(metrics.roofBoardingCostEstimate)],
+        ['Roof finish', formatCurrency(metrics.roofCostEstimate)],
+        ['Shell estimate', formatCurrency(metrics.shellCostEstimate)],
+      ],
+    },
   ];
 
-  let y = 38;
-  summaryRows.forEach(([label, value], index) => {
-    const rowX = index % 2 === 0 ? 14 : 108;
-    const valueX = rowX + 86;
-    if (index % 2 === 0 && index > 0) {
-      y += 8;
-    }
-    doc.setFontSize(9);
-    doc.text(`${label}:`, rowX, y);
-    doc.setFont('helvetica', 'bold');
-    doc.text(String(value), valueX, y, { align: 'right' });
-    doc.setFont('helvetica', 'normal');
+  const cardWidth = 88;
+  const cardHeight = 36;
+  const cardGapX = 6;
+  const cardGapY = 6;
+  const cardsTop = 34;
+  summaryCards.forEach((card, index) => {
+    const column = index % 2;
+    const row = Math.floor(index / 2);
+    const cardX = 14 + (column * (cardWidth + cardGapX));
+    const cardY = cardsTop + (row * (cardHeight + cardGapY));
+    drawSummaryCard(card.title, card.rows, cardX, cardY, cardWidth, cardHeight);
   });
 
-  y += 16;
+  const y = cardsTop + (Math.ceil(summaryCards.length / 2) * cardHeight) + ((Math.ceil(summaryCards.length / 2) - 1) * cardGapY) + 6;
+  const inlinePanelWidth = 58;
+  const inlineBoxWidth = 48;
+  const inlineBoxHeight = 30;
+  const inlinePlanLayout = { boxWidth: inlineBoxWidth, boxHeight: inlineBoxHeight, panelWidth: inlinePanelWidth, captionOffsetY: 45 };
   const sharedPlanScale = Math.min(
-    70 / Math.max(inputs.groundWidth, metrics.loftDeckWidth, 1),
-    42 / Math.max(metrics.groundFloorLength, metrics.loftDeckLength, 1),
+    inlineBoxWidth / Math.max(inputs.groundWidth, metrics.loftDeckWidth, 1),
+    inlineBoxHeight / Math.max(metrics.groundFloorLength, metrics.loftDeckLength, inputs.groundLength, 1),
   );
-  addPdfPlan(doc, 'Ground floor plan', 14, y, inputs.groundWidth, metrics.groundFloorLength, metrics.groundHeadspaceWidth, metrics.enclosedShellLength, metrics.frontTerraceDepth, unitSystem, sharedPlanScale);
-  addPdfPlan(doc, 'Loft plan', 105, y, metrics.loftDeckWidth, metrics.loftDeckLength, metrics.loftHeadspaceWidth, metrics.loftDeckLength, 0, unitSystem, sharedPlanScale);
-  addPdfAnchorPlan(doc, 14, y + 78, inputs.groundWidth, inputs.groundLength, metrics.anchorPoints, metrics.anchorSpacingX, metrics.anchorSpacingY, unitSystem);
+  addPdfPlan(doc, 'Ground floor plan', 14, y, inputs.groundWidth, metrics.groundFloorLength, metrics.groundHeadspaceWidth, metrics.enclosedShellLength, metrics.frontTerraceDepth, unitSystem, sharedPlanScale, inlinePlanLayout);
+  addPdfPlan(doc, 'Loft plan', 76, y, metrics.loftDeckWidth, metrics.loftDeckLength, metrics.loftHeadspaceWidth, metrics.loftDeckLength, 0, unitSystem, sharedPlanScale, inlinePlanLayout);
+  addPdfAnchorPlan(doc, 138, y, inputs.groundWidth, inputs.groundLength, metrics.anchorPoints, metrics.anchorSpacingX, metrics.anchorSpacingY, unitSystem, sharedPlanScale, { boxWidth: inlineBoxWidth, boxHeight: inlineBoxHeight, panelWidth: inlinePanelWidth, captionLineOneOffsetY: 45, captionLineTwoOffsetY: 51 });
   doc.setFontSize(9);
-  doc.text(`Rafter spacing ${formatLength(metrics.actualSpacing, unitSystem)} | Roof pitch ${formatValue(metrics.roofPitch, 1)} deg`, 105, y + 134);
-  doc.text(`Facade glazing ${metrics.glazingLabel}`, 105, y + 140);
+  doc.text(`Rafter spacing ${formatLength(metrics.actualSpacing, unitSystem)} | Roof pitch ${formatValue(metrics.roofPitch, 1)} deg`, 105, y + 60, { align: 'center' });
+  doc.text(`Facade glazing ${metrics.glazingLabel}`, 105, y + 66, { align: 'center' });
 
   addPdfRenderedViewsPage(doc, metrics, inputs);
   addPdfFramingSchematicPage(doc, metrics, inputs, unitSystem);
@@ -2119,10 +2186,11 @@ export default function App() {
   const anchorPoints = floorAxis.flatMap((y) => widthAxis.map((x) => ({ x, y })));
   const floorJoistCount = frameCount;
   const connectorRows = Math.max(1, Math.ceil(inputs.groundLength / 2));
-  const connectorBraceCount = connectorRows * 2;
+  const connectorBraceLength = 0.6;
+  const connectorBraceCount = connectorRows * 6;
   const perimeterBeamCount = inputs.includeConcreteSlab ? 0 : 4;
   const floorJoistVolume = frameCount * inputs.groundWidth * availableSectionArea;
-  const connectorBraceVolume = connectorBraceCount * actualSpacing * availableSectionArea;
+  const connectorBraceVolume = connectorBraceCount * connectorBraceLength * availableSectionArea;
   const perimeterBeamVolume = inputs.includeConcreteSlab ? 0 : ((inputs.groundLength * 2) + (inputs.groundWidth * 2)) * availableSectionArea;
   const totalWoodVolume = rafterVolume + floorJoistVolume + connectorBraceVolume + perimeterBeamVolume + railingVolume;
   const stockPieceCount = Math.max(1, Math.ceil(totalWoodVolume / Math.max(availableSectionArea * inputs.availableWoodLength, 0.0001)));
@@ -2504,8 +2572,8 @@ export default function App() {
                 <strong>{floorJoistCount} pcs</strong>
               </div>
               <div>
-                <span>Connector braces @ 2 m</span>
-                <strong>{connectorBraceCount} pcs</strong>
+                <span>Joist and rafter connectors @ 2 m</span>
+                <strong>{connectorBraceCount} pcs @ {formatLength(0.6, unitSystem)}</strong>
               </div>
               <div>
                 <span>Apex screws total</span>
@@ -2662,8 +2730,8 @@ export default function App() {
                 <strong>{floorJoistCount} pcs</strong>
               </div>
               <div>
-                <span>Connector braces @ 2 m</span>
-                <strong>{connectorBraceCount} pcs</strong>
+                <span>Joist and rafter connectors @ 2 m</span>
+                <strong>{connectorBraceCount} pcs @ {formatLength(0.6, unitSystem)}</strong>
               </div>
               <div>
                 <span>Estimated stock pieces</span>
