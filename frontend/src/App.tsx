@@ -86,6 +86,13 @@ type PlannerMetrics = {
   wallCladdingArea: number;
   roofBoardingVolume: number;
   totalWoodVolume: number;
+  apexScrewLengthMm: number;
+  apexScrewDiameterMm: number;
+  apexScrewCount: number;
+  roofWallScrewLengthMm: number;
+  roofWallScrewCount: number;
+  wallFloorScrewLengthMm: number;
+  wallFloorScrewCount: number;
   woodCostEstimate: number;
   panelCostEstimate: number;
   glassCostEstimate: number;
@@ -541,12 +548,30 @@ function buildDxf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: Un
   const apexRight = createVerticalMitredBeamPolygon(apexRightStart, apexSeamCenter, timberFace, apexSeamCenter.x);
   const apexBottomY = Math.max(apexLeft[2].y, apexRight[2].y);
   const apexTopY = Math.min(apexLeft[3].y, apexRight[3].y);
-  const roofWallWallX = 19;
-  const roofWallWallHeight = 6.8;
-  const roofWallWall = createDxfRect(roofWallWallX, detailOffsetY + 1.6, timberFace, roofWallWallHeight, 'DETAIL_ROOF_WALL');
-  const roofWallRoofStart = { x: roofWallWallX + (timberFace * 0.95), y: detailOffsetY + 1.6 + (roofWallWallHeight * 0.55) };
-  const roofWallRoofEnd = { x: 26.4, y: detailOffsetY - 2.1 };
-  const roofWallRoof = createBeamPolygon(roofWallRoofStart, roofWallRoofEnd, timberFace, 180 - metrics.roofPitch, 180 - metrics.roofPitch);
+  const roofWallBaseY = detailOffsetY + 8.4;
+  const roofWallLowPoint = { x: 18.8, y: roofWallBaseY };
+  const roofWallLength = unitSystem === 'metric' ? 8.2 : 24;
+  const roofWallHighPoint = {
+    x: roofWallLowPoint.x + (Math.cos(metrics.roofPitch * (Math.PI / 180)) * roofWallLength),
+    y: roofWallLowPoint.y - (Math.sin(metrics.roofPitch * (Math.PI / 180)) * roofWallLength),
+  };
+  const roofWallRoof = createBeamPolygon(roofWallLowPoint, roofWallHighPoint, timberFace, 90, 90);
+  const roofWallWallHeight = 6.4;
+  const roofWallSetout = roofWallWallHeight / Math.max(Math.sin(metrics.roofPitch * (Math.PI / 180)), 0.001);
+  const roofWallAxisUnit = {
+    x: (roofWallHighPoint.x - roofWallLowPoint.x) / roofWallLength,
+    y: (roofWallHighPoint.y - roofWallLowPoint.y) / roofWallLength,
+  };
+  const roofWallNormal = { x: -roofWallAxisUnit.y, y: roofWallAxisUnit.x };
+  const roofWallAxisPoint = {
+    x: roofWallLowPoint.x + (roofWallAxisUnit.x * roofWallSetout),
+    y: roofWallLowPoint.y + (roofWallAxisUnit.y * roofWallSetout),
+  };
+  const roofWallAttachPoint = {
+    x: roofWallAxisPoint.x + (roofWallNormal.x * (timberFace / 2)),
+    y: roofWallAxisPoint.y + (roofWallNormal.y * (timberFace / 2)),
+  };
+  const roofWallWall = createDxfRect(roofWallAttachPoint.x - timberFace, roofWallAttachPoint.y, timberFace, roofWallWallHeight, 'DETAIL_ROOF_WALL');
   const wallFloorWallX = 31.5;
   const wallFloorFloorY = detailOffsetY + 8.6;
   const wallFloorWall = createDxfRect(wallFloorWallX, detailOffsetY + 1.4, timberFace, 7.2, 'DETAIL_WALL_FLOOR');
@@ -574,22 +599,26 @@ function buildDxf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: Un
     ...createDxfText(18.6, detailOffsetY - 0.8, textHeight, 'ROOF-WALL DETAIL', 'TEXT'),
     ...roofWallWall,
     ...createDxfPolyline(roofWallRoof, 'DETAIL_ROOF_WALL'),
-    ...createDxfCircle(roofWallWallX + (timberFace / 2), detailOffsetY + 1.6 + (roofWallWallHeight * 0.5), anchorRadius, 'DETAIL_ROOF_WALL'),
-    ...createDxfArc(roofWallWallX + (timberFace * 1.75), detailOffsetY + 1.6 + (roofWallWallHeight * 0.7), Math.max(timberFace * 1.2, unitSystem === 'metric' ? 0.65 : 1.9), 180 - detail.wallRoofAngle, 180, 'DETAIL_ROOF_WALL'),
-    ...createDxfText(22.2, detailOffsetY + 3.1, textHeight, `${formatValue(detail.wallRoofAngle, 1)} deg`, 'DETAIL_ROOF_WALL'),
+    ...createDxfArc(roofWallAttachPoint.x - (timberFace * 0.15), roofWallAttachPoint.y + (timberFace * 0.35), Math.max(timberFace * 1.05, unitSystem === 'metric' ? 0.55 : 1.6), 270, 270 + detail.wallRoofAngle, 'DETAIL_ROOF_WALL'),
+    ...createDxfText(roofWallAttachPoint.x + (timberFace * 0.9), roofWallAttachPoint.y + (timberFace * 0.5), textHeight, `${formatValue(detail.wallRoofAngle, 1)} deg`, 'DETAIL_ROOF_WALL'),
+    ...createDxfLine(roofWallLowPoint.x + (roofWallNormal.x * timberFace), roofWallLowPoint.y + (roofWallNormal.y * timberFace), roofWallAxisPoint.x + (roofWallNormal.x * timberFace), roofWallAxisPoint.y + (roofWallNormal.y * timberFace), 'DETAIL_ROOF_WALL'),
+    ...createDxfText(roofWallAxisPoint.x + (roofWallNormal.x * (timberFace * 1.8)), roofWallAxisPoint.y + (roofWallNormal.y * (timberFace * 1.8)), textHeight, `Setout ${formatLength(roofWallWallHeight / Math.max(Math.sin(metrics.roofPitch * (Math.PI / 180)), 0.001), unitSystem)}`, 'DETAIL_ROOF_WALL'),
     ...createDxfText(31, detailOffsetY - 0.8, textHeight, 'WALL-FLOOR DETAIL', 'TEXT'),
     ...wallFloorWall,
     ...wallFloorBase,
     ...createDxfPolyline([
-      { x: wallFloorWallX + (timberFace * 0.25), y: wallFloorFloorY - 0.2 },
-      { x: wallFloorWallX + (timberFace * 0.7), y: wallFloorFloorY - 0.2 },
-      { x: wallFloorWallX + 1.8, y: wallFloorFloorY + 1.05 },
+      { x: wallFloorWallX + 0.05, y: wallFloorFloorY - 0.45 },
+      { x: wallFloorWallX + (timberFace * 0.75), y: wallFloorFloorY - 0.45 },
+      { x: wallFloorWallX + 2.1, y: wallFloorFloorY + 1.05 },
       { x: wallFloorWallX + 1.35, y: wallFloorFloorY + 1.05 },
     ], 'DETAIL_WALL_FLOOR'),
-    ...createDxfCircle(wallFloorWallX + (timberFace * 0.45), wallFloorFloorY - 0.08, anchorRadius, 'DETAIL_WALL_FLOOR'),
-    ...createDxfCircle(wallFloorWallX + 1.45, wallFloorFloorY + 0.86, anchorRadius, 'DETAIL_WALL_FLOOR'),
-    ...createDxfArc(wallFloorWallX - 0.15, wallFloorFloorY + 0.15, Math.max(timberFace * 1.05, unitSystem === 'metric' ? 0.55 : 1.6), 180, 270, 'DETAIL_WALL_FLOOR'),
-    ...createDxfText(wallFloorWallX + 1.8, wallFloorFloorY - 0.55, textHeight, '90 deg', 'DETAIL_WALL_FLOOR'),
+    ...createDxfCircle(wallFloorWallX + 0.45, wallFloorFloorY - 0.22, anchorRadius, 'DETAIL_WALL_FLOOR'),
+    ...createDxfCircle(wallFloorWallX + 0.9, wallFloorFloorY + 0.18, anchorRadius, 'DETAIL_WALL_FLOOR'),
+    ...createDxfCircle(wallFloorWallX + 1.55, wallFloorFloorY + 0.34, anchorRadius, 'DETAIL_WALL_FLOOR'),
+    ...createDxfCircle(wallFloorWallX + 2.0, wallFloorFloorY + 0.74, anchorRadius, 'DETAIL_WALL_FLOOR'),
+    ...createDxfArc(wallFloorWallX + 0.1, wallFloorFloorY - 0.05, Math.max(timberFace * 0.75, unitSystem === 'metric' ? 0.42 : 1.2), 180, 270, 'DETAIL_WALL_FLOOR'),
+    ...createDxfText(wallFloorWallX + 1.55, wallFloorFloorY - 0.22, textHeight, '90 deg', 'DETAIL_WALL_FLOOR'),
+    ...createDxfText(wallFloorWallX + 0.9, wallFloorFloorY + 1.9, textHeight, `4 x ${formatValue(Math.max(Math.round(((inputs.availableWoodWidth * 1000) - 5) / 5) * 5, 25), 0)} mm`, 'DETAIL_WALL_FLOOR'),
   ];
 
   metrics.anchorPoints.forEach((anchorPoint) => {
@@ -867,52 +896,109 @@ function addPdfRenderedViewsPage(doc: jsPDF, metrics: PlannerMetrics, inputs: Pl
 }
 
 function addPdfFramingSchematicPage(doc: jsPDF, metrics: PlannerMetrics, inputs: PlannerInputs, unitSystem: UnitSystem) {
-  const frameOriginX = 20;
-  const frameOriginY = 92;
-  const frameSpacing = 40;
-  const frameScale = 34 / Math.max(inputs.groundWidth, metrics.totalHeight, 0.1);
-  const frameWidth = inputs.groundWidth * frameScale;
-  const frameHeight = metrics.totalHeight * frameScale;
-  const apexAngle = 180 - (metrics.roofPitch * 2);
+  const boxX = 18;
+  const boxY = 36;
+  const boxWidth = 174;
+  const boxHeight = 220;
+  const drawingScale = Math.min((boxWidth - 24) / Math.max(inputs.groundWidth, 0.1), (boxHeight - 34) / Math.max(metrics.totalHeight, 0.1));
+  const baseWidth = inputs.groundWidth * drawingScale;
+  const totalHeight = metrics.totalHeight * drawingScale;
+  const leftBase = { x: boxX + ((boxWidth - baseWidth) / 2), y: boxY + boxHeight - 16 };
+  const rightBase = { x: leftBase.x + baseWidth, y: leftBase.y };
+  const apex = { x: leftBase.x + (baseWidth / 2), y: leftBase.y - totalHeight };
+  const sideWallHeight = metrics.sideWallHeight * drawingScale;
+  const leftKnee = { x: leftBase.x + ((sideWallHeight / Math.max(totalHeight, 0.1)) * (apex.x - leftBase.x)), y: leftBase.y - sideWallHeight };
+  const rightKnee = { x: rightBase.x - ((sideWallHeight / Math.max(totalHeight, 0.1)) * (rightBase.x - apex.x)), y: rightBase.y - sideWallHeight };
+  const loftY = leftBase.y - (metrics.loftFloorHeight * drawingScale);
+  const loftLeftX = apex.x - ((metrics.loftDeckWidth * drawingScale) / 2);
+  const loftRightX = apex.x + ((metrics.loftDeckWidth * drawingScale) / 2);
+  const upperHeight = Math.max(metrics.totalHeight - metrics.loftFloorHeight, 0);
+
+  const drawPlate = (centerX: number, centerY: number, width: number, height: number, angleDeg = 0) => {
+    const radians = angleDeg * (Math.PI / 180);
+    const halfWidth = width / 2;
+    const halfHeight = height / 2;
+    const corners = [
+      { x: -halfWidth, y: -halfHeight },
+      { x: halfWidth, y: -halfHeight },
+      { x: halfWidth, y: halfHeight },
+      { x: -halfWidth, y: halfHeight },
+    ].map((point) => ({
+      x: centerX + ((point.x * Math.cos(radians)) - (point.y * Math.sin(radians))),
+      y: centerY + ((point.x * Math.sin(radians)) + (point.y * Math.cos(radians))),
+    }));
+    drawPdfFilledPolygon(doc, corners, [186, 193, 198], [128, 136, 144], 0.35);
+  };
 
   doc.addPage();
   doc.setFontSize(20);
   doc.text('Framing schematic', 14, 18);
   doc.setFontSize(10);
-  doc.text('Overall frame rhythm and geometry laid out like a build sketch, based on the current planner values.', 14, 26);
+  doc.text('Single frame reference with the main build dimensions laid over the current geometry.', 14, 26);
 
   doc.setDrawColor(71, 54, 39);
-  doc.setLineWidth(1);
-  for (let index = 0; index < 3; index += 1) {
-    const baseX = frameOriginX + (index * frameSpacing);
-    doc.line(baseX, frameOriginY, baseX + (frameWidth / 2), frameOriginY - frameHeight);
-    doc.line(baseX + frameWidth, frameOriginY, baseX + (frameWidth / 2), frameOriginY - frameHeight);
-    doc.line(baseX, frameOriginY, baseX + frameWidth, frameOriginY);
+  doc.setLineWidth(0.9);
+  doc.line(leftBase.x, leftBase.y, apex.x, apex.y);
+  doc.line(apex.x, apex.y, rightBase.x, rightBase.y);
+  doc.line(leftBase.x, leftBase.y, rightBase.x, rightBase.y);
+  if (metrics.sideWallHeight > 0) {
+    doc.line(leftKnee.x, leftKnee.y, leftKnee.x, leftBase.y);
+    doc.line(rightKnee.x, rightKnee.y, rightKnee.x, rightBase.y);
   }
-  doc.line(frameOriginX + (frameWidth / 2), frameOriginY - frameHeight, frameOriginX + frameSpacing + (frameWidth / 2), frameOriginY - frameHeight - 5);
-  doc.line(frameOriginX + frameSpacing + (frameWidth / 2), frameOriginY - frameHeight - 5, frameOriginX + (frameSpacing * 2) + (frameWidth / 2), frameOriginY - frameHeight);
-  doc.line(frameOriginX + 6, frameOriginY - 14, frameOriginX + frameSpacing + 6, frameOriginY - 24);
-  doc.line(frameOriginX + frameSpacing + 6, frameOriginY - 24, frameOriginX + (frameSpacing * 2) + 6, frameOriginY - 14);
+  if (metrics.loftArea > 0) {
+    doc.line(loftLeftX, loftY, loftRightX, loftY);
+  }
+
+  drawPlate(apex.x, apex.y + 8, 8, 5, 0);
+  drawPlate(leftKnee.x + 4, leftKnee.y + 6, 8, 5, -65);
+  drawPlate(rightKnee.x - 4, rightKnee.y + 6, 8, 5, 65);
+  drawPlate(loftLeftX + 4, loftY - 2, 8, 5, 0);
+  drawPlate(loftRightX - 4, loftY - 2, 8, 5, 0);
+  drawPlate(leftBase.x + ((apex.x - leftBase.x) * 0.35), leftBase.y - ((leftBase.y - apex.y) * 0.35), 8, 5, -60);
+  drawPlate(rightBase.x - ((rightBase.x - apex.x) * 0.35), rightBase.y - ((rightBase.y - apex.y) * 0.35), 8, 5, 60);
+  drawPlate(leftBase.x + (baseWidth * 0.4), leftBase.y, 8, 5, 0);
+  drawPlate(leftBase.x + (baseWidth * 0.6), leftBase.y, 8, 5, 0);
+
+  doc.setDrawColor(45, 45, 45);
+  doc.setLineWidth(0.45);
+  doc.line(leftBase.x - 12, leftBase.y, leftBase.x - 12, apex.y);
+  doc.line(leftBase.x - 14, leftBase.y, leftBase.x - 10, leftBase.y);
+  doc.line(leftBase.x - 14, apex.y, leftBase.x - 10, apex.y);
+  doc.text(formatLength(metrics.totalHeight, unitSystem), leftBase.x - 18, (leftBase.y + apex.y) / 2, { angle: 90, align: 'center' });
+
+  doc.line(leftBase.x, leftBase.y + 14, rightBase.x, leftBase.y + 14);
+  doc.line(leftBase.x, leftBase.y + 11, leftBase.x, leftBase.y + 17);
+  doc.line(rightBase.x, leftBase.y + 11, rightBase.x, leftBase.y + 17);
+  doc.text(formatLength(inputs.groundWidth, unitSystem), apex.x, leftBase.y + 24, { align: 'center' });
+
+  if (metrics.loftArea > 0) {
+    doc.line(loftLeftX, loftY + 10, loftRightX, loftY + 10);
+    doc.line(loftLeftX, loftY + 7, loftLeftX, loftY + 13);
+    doc.line(loftRightX, loftY + 7, loftRightX, loftY + 13);
+    doc.text(formatLength(metrics.loftDeckWidth, unitSystem), apex.x, loftY + 20, { align: 'center' });
+
+    doc.line(apex.x + 10, loftY, apex.x + 10, apex.y + 10);
+    doc.line(apex.x + 7, loftY, apex.x + 13, loftY);
+    doc.line(apex.x + 7, apex.y + 10, apex.x + 13, apex.y + 10);
+    doc.text(formatLength(upperHeight, unitSystem), apex.x + 18, (loftY + apex.y + 10) / 2, { angle: 90, align: 'center' });
+
+    doc.line(apex.x - 12, loftY, apex.x - 12, leftBase.y);
+    doc.line(apex.x - 15, loftY, apex.x - 9, loftY);
+    doc.line(apex.x - 15, leftBase.y, apex.x - 9, leftBase.y);
+    doc.text(formatLength(metrics.loftFloorHeight, unitSystem), apex.x - 20, (loftY + leftBase.y) / 2, { angle: 90, align: 'center' });
+  }
+
+  if (metrics.sideWallHeight > 0) {
+    doc.line(rightKnee.x + 12, rightKnee.y, rightKnee.x + 12, rightBase.y);
+    doc.line(rightKnee.x + 9, rightKnee.y, rightKnee.x + 15, rightKnee.y);
+    doc.line(rightKnee.x + 9, rightBase.y, rightKnee.x + 15, rightBase.y);
+    doc.text(formatLength(metrics.sideWallHeight, unitSystem), rightKnee.x + 20, (rightKnee.y + rightBase.y) / 2, { angle: 90, align: 'center' });
+  }
 
   doc.setFontSize(10);
-  doc.text(`Frames ${metrics.frameCount} at ${formatLength(metrics.actualSpacing, unitSystem)} centers`, 18, 122);
-  doc.text(`Rafter length ${formatLength(metrics.rafterLength, unitSystem)}`, 18, 128);
-  doc.text(`Stock ${unitSystem === 'metric' ? `${formatValue(inputs.availableWoodWidth * 1000, 0)} x ${formatValue(inputs.availableWoodDepth * 1000, 0)} mm` : `${formatValue((inputs.availableWoodWidth * 1000) / MM_PER_INCH, 2)} x ${formatValue((inputs.availableWoodDepth * 1000) / MM_PER_INCH, 2)} in`}`, 18, 134);
-
-  const triBaseX = 36;
-  const triBaseY = 230;
-  const triScale = 62 / Math.max(inputs.groundWidth, metrics.totalHeight, 0.1);
-  const triWidth = inputs.groundWidth * triScale;
-  const triHeight = metrics.totalHeight * triScale;
-  doc.setLineWidth(0.9);
-  doc.line(triBaseX, triBaseY, triBaseX + (triWidth / 2), triBaseY - triHeight);
-  doc.line(triBaseX + triWidth, triBaseY, triBaseX + (triWidth / 2), triBaseY - triHeight);
-  doc.line(triBaseX, triBaseY, triBaseX + triWidth, triBaseY);
-  drawPdfAngleArc(doc, triBaseX + 8, triBaseY - 2, 10, 180, 180 - metrics.roofPitch, `${formatValue(metrics.roofPitch, 1)} deg`, 18);
-  drawPdfAngleArc(doc, triBaseX + (triWidth / 2), triBaseY - triHeight + 5, 15, 180 + metrics.roofPitch, 360 - metrics.roofPitch, `${formatValue(apexAngle, 1)} deg`, 25);
-  doc.text(`Base ${formatLength(inputs.groundWidth, unitSystem)}`, triBaseX + (triWidth / 2), triBaseY + 10, { align: 'center' });
-  doc.text(`Height ${formatLength(metrics.totalHeight, unitSystem)}`, triBaseX - 10, triBaseY - (triHeight / 2), { angle: 90 });
-  doc.text(`Rafters ${formatLength(metrics.rafterLength, unitSystem)}`, triBaseX + triWidth + 10, triBaseY - (triHeight / 2));
+  doc.text(`Frames ${metrics.frameCount} at ${formatLength(metrics.actualSpacing, unitSystem)} centers`, 18, 244);
+  doc.text(`Rafter length ${formatLength(metrics.fullRafterLength, unitSystem)}`, 18, 250);
+  doc.text(`Stock ${unitSystem === 'metric' ? `${formatValue(inputs.availableWoodWidth * 1000, 0)} x ${formatValue(inputs.availableWoodDepth * 1000, 0)} mm` : `${formatValue((inputs.availableWoodWidth * 1000) / MM_PER_INCH, 2)} x ${formatValue((inputs.availableWoodDepth * 1000) / MM_PER_INCH, 2)} in`}`, 18, 256);
 }
 
 function addPdfApexDetail(doc: jsPDF, metrics: PlannerMetrics, inputs: PlannerInputs, unitSystem: UnitSystem) {
@@ -1043,17 +1129,31 @@ function addPdfApexDetail(doc: jsPDF, metrics: PlannerMetrics, inputs: PlannerIn
 
 function addPdfRoofWallDetail(doc: jsPDF, metrics: PlannerMetrics, inputs: PlannerInputs, unitSystem: UnitSystem) {
   const memberFaceMm = inputs.availableWoodDepth * 1000;
+  const memberWidthMm = inputs.availableWoodWidth * 1000;
   const memberFaceDraw = clamp(memberFaceMm * 0.12, 12, 26);
   const wallHeight = 90;
-  const wallX = 78;
-  const baseY = 244;
-  const topY = baseY - wallHeight;
-  const overlapDepth = wallHeight * 0.5;
-  const roofStart = { x: wallX + memberFaceDraw, y: topY + overlapDepth };
-  const roofLength = 108;
+  const baseY = 214;
+  const roofLowPoint = { x: 54, y: baseY };
+  const roofLength = 126;
   const roofPitchRadians = metrics.roofPitch * (Math.PI / 180);
-  const roofEnd = { x: roofStart.x + (Math.cos(roofPitchRadians) * roofLength), y: roofStart.y - (Math.sin(roofPitchRadians) * roofLength) };
-  const roofPolygon = createBeamPolygon({ x: roofStart.x + 6, y: roofStart.y + 1 }, roofEnd, memberFaceDraw, 180 - metrics.roofPitch, 180 - metrics.roofPitch);
+  const roofHighPoint = { x: roofLowPoint.x + (Math.cos(roofPitchRadians) * roofLength), y: roofLowPoint.y - (Math.sin(roofPitchRadians) * roofLength) };
+  const roofPolygon = createBeamPolygon(roofLowPoint, roofHighPoint, memberFaceDraw, 90, 90);
+  const roofAxisUnit = {
+    x: (roofHighPoint.x - roofLowPoint.x) / roofLength,
+    y: (roofHighPoint.y - roofLowPoint.y) / roofLength,
+  };
+  const roofNormal = { x: -roofAxisUnit.y, y: roofAxisUnit.x };
+  const wallSetout = wallHeight / Math.max(Math.sin(roofPitchRadians), 0.001);
+  const wallAxisPoint = {
+    x: roofLowPoint.x + (roofAxisUnit.x * wallSetout),
+    y: roofLowPoint.y + (roofAxisUnit.y * wallSetout),
+  };
+  const wallAttachPoint = {
+    x: wallAxisPoint.x + (roofNormal.x * (memberFaceDraw / 2)),
+    y: wallAxisPoint.y + (roofNormal.y * (memberFaceDraw / 2)),
+  };
+  const wallX = wallAttachPoint.x - memberFaceDraw;
+  const topY = wallAttachPoint.y;
   const wallPolygon = [
     { x: wallX, y: baseY },
     { x: wallX, y: topY },
@@ -1061,40 +1161,80 @@ function addPdfRoofWallDetail(doc: jsPDF, metrics: PlannerMetrics, inputs: Plann
     { x: wallX + memberFaceDraw, y: baseY },
   ];
   const wallRoofAngle = 90 - metrics.roofPitch;
+  const setoutLineStart = { x: roofLowPoint.x - (roofNormal.x * (memberFaceDraw * 1.3)), y: roofLowPoint.y - (roofNormal.y * (memberFaceDraw * 1.3)) };
+  const setoutLineEnd = { x: wallAxisPoint.x - (roofNormal.x * (memberFaceDraw * 1.3)), y: wallAxisPoint.y - (roofNormal.y * (memberFaceDraw * 1.3)) };
+  const setoutLabel = {
+    x: ((setoutLineStart.x + setoutLineEnd.x) / 2) - (roofNormal.x * 4.5) - (roofAxisUnit.x * 2),
+    y: ((setoutLineStart.y + setoutLineEnd.y) / 2) - (roofNormal.y * 4.5) - (roofAxisUnit.y * 2),
+  };
+  const screwCenter = { x: wallX + (memberFaceDraw / 2), y: topY + (wallHeight * 0.12) };
+  const screwRadius = 2.2;
+  const screwLengthMm = Math.max(Math.round(((memberWidthMm * 2) - 5) / 5) * 5, 25);
+  const timberTextX = wallX + (memberFaceDraw / 2);
+  const timberTextY = baseY + 24;
+  const screwNoteY = timberTextY + 10;
+  const angleLabelPoint = { x: wallAttachPoint.x + (memberFaceDraw * 2.3), y: wallAttachPoint.y + (memberFaceDraw * 0.15) };
+  const sideWallDimX = Math.max(112, wallX + memberFaceDraw + 16);
 
   doc.addPage();
   doc.setFontSize(20);
   doc.text('Roof to wall connection', 14, 18);
   doc.setFontSize(10);
-  doc.text('Vector detail sized from the current timber face width and roof pitch.', 14, 26);
+  doc.text('Simplified wall seat detail with the rafter extended to floor level and cut off at the slab line.', 14, 26);
   drawPdfFilledPolygon(doc, wallPolygon, [214, 187, 147], [108, 69, 38], 0.7);
   drawPdfFilledPolygon(doc, roofPolygon, [183, 122, 71], [108, 66, 36], 0.7);
-  doc.setFillColor(79, 101, 112);
-  doc.circle(wallX + (memberFaceDraw * 0.5), topY + (overlapDepth * 0.5), 1.6, 'F');
-  drawPdfAngleArc(doc, wallX + memberFaceDraw + 10, topY + overlapDepth + 3, 22, 180 - wallRoofAngle, 180, `${formatValue(wallRoofAngle, 1)} deg`, 34);
+  drawPdfAngleArc(doc, wallAttachPoint.x - (memberFaceDraw * 0.15), wallAttachPoint.y + (memberFaceDraw * 0.42), 16, 270, 270 + wallRoofAngle, '', 26);
+  doc.setFontSize(10);
+  doc.setTextColor(71, 54, 39);
+  doc.text(`${formatValue(wallRoofAngle, 1)} deg`, angleLabelPoint.x, angleLabelPoint.y);
+  doc.setDrawColor(220, 24, 45);
+  doc.setFillColor(220, 24, 45);
+  doc.circle(screwCenter.x, screwCenter.y, screwRadius, 'S');
+  doc.line(screwCenter.x - 1.25, screwCenter.y - 1.25, screwCenter.x + 1.25, screwCenter.y + 1.25);
+  doc.line(screwCenter.x - 1.25, screwCenter.y + 1.25, screwCenter.x + 1.25, screwCenter.y - 1.25);
   doc.setFontSize(11);
-  doc.text(`Roof pitch ${formatValue(metrics.roofPitch, 1)} deg`, roofStart.x + 30, roofStart.y + 8);
-  doc.text('Single central bolt in overlap', roofStart.x + 30, roofStart.y + 16);
+  doc.setDrawColor(31, 95, 117);
+  doc.setLineWidth(0.55);
+  doc.line(setoutLineStart.x, setoutLineStart.y, setoutLineEnd.x, setoutLineEnd.y);
+  doc.setLineWidth(0.4);
+  doc.line(setoutLineStart.x - (roofNormal.x * 4), setoutLineStart.y - (roofNormal.y * 4), setoutLineStart.x + (roofNormal.x * 4), setoutLineStart.y + (roofNormal.y * 4));
+  doc.line(setoutLineEnd.x - (roofNormal.x * 4), setoutLineEnd.y - (roofNormal.y * 4), setoutLineEnd.x + (roofNormal.x * 4), setoutLineEnd.y + (roofNormal.y * 4));
+  doc.setFontSize(10);
+  doc.setTextColor(31, 95, 117);
+  doc.text(`Wall setout from floor cut ${formatLength(metrics.sideWallHeight / Math.max(Math.sin(roofPitchRadians), 0.001), unitSystem)}`, setoutLabel.x, setoutLabel.y, { align: 'center', angle: metrics.roofPitch });
+  doc.setTextColor(71, 54, 39);
+  doc.setFontSize(11);
+  doc.text('Measure the wall seat from the lower floor cut end', 14, 34);
 
   doc.setDrawColor(79, 101, 112);
-  doc.line(wallX - 12, topY, wallX - 12, baseY);
-  doc.line(wallX - 15, topY, wallX - 9, topY);
-  doc.line(wallX - 15, baseY, wallX - 9, baseY);
-  doc.text(`Side wall face ${formatLength(inputs.availableWoodDepth, unitSystem)}`, wallX - 18, (topY + baseY) / 2, { angle: 90 });
+  doc.setDrawColor(31, 95, 117);
+  doc.line(sideWallDimX, topY, sideWallDimX, baseY);
+  doc.line(sideWallDimX - 3, topY, sideWallDimX + 3, topY);
+  doc.line(sideWallDimX - 3, baseY, sideWallDimX + 3, baseY);
+  doc.text(`Side wall face ${formatLength(inputs.availableWoodDepth, unitSystem)}`, sideWallDimX + 8, (topY + baseY) / 2, { angle: 90, align: 'center' });
 
   doc.line(wallX, baseY + 16, wallX + memberFaceDraw, baseY + 16);
   doc.line(wallX, baseY + 13, wallX, baseY + 19);
   doc.line(wallX + memberFaceDraw, baseY + 13, wallX + memberFaceDraw, baseY + 19);
-  doc.text(`Timber face ${formatLength(inputs.availableWoodDepth, unitSystem)}`, wallX + (memberFaceDraw / 2), baseY + 24, { align: 'center' });
+  doc.setTextColor(71, 54, 39);
+  doc.text(`Timber face ${formatLength(inputs.availableWoodDepth, unitSystem)}`, timberTextX, timberTextY, { align: 'center' });
+  doc.setDrawColor(220, 24, 45);
+  doc.setFillColor(220, 24, 45);
+  doc.circle(timberTextX - 32, screwNoteY - 1.4, 1.5, 'F');
+  doc.setTextColor(220, 24, 45);
+  doc.text(`Screw recommended size ${formatValue(screwLengthMm, 0)} mm`, timberTextX, screwNoteY, { align: 'center' });
+  doc.setTextColor(71, 54, 39);
 }
 
 function addPdfWallFloorDetail(doc: jsPDF, inputs: PlannerInputs, unitSystem: UnitSystem) {
   const memberFaceDraw = clamp(inputs.availableWoodDepth * 1000 * 0.12, 12, 26);
   const floorThicknessDraw = clamp(inputs.availableWoodWidth * 1000 * 0.18, 8, 18);
   const wallX = 92;
-  const floorY = 206;
-  const wallHeight = 96;
+  const floorY = 188;
+  const wallHeight = 102;
   const floorLength = 104;
+  const screwLengthMm = Math.max(Math.round(((inputs.availableWoodWidth * 1000) - 5) / 5) * 5, 25);
+  const screwCountPerConnection = 4;
   const floorPolygon = [
     { x: wallX - 16, y: floorY },
     { x: wallX - 16 + floorLength, y: floorY },
@@ -1116,20 +1256,32 @@ function addPdfWallFloorDetail(doc: jsPDF, inputs: PlannerInputs, unitSystem: Un
   drawPdfFilledPolygon(doc, floorPolygon, [217, 198, 165], [108, 69, 38], 0.7);
   drawPdfFilledPolygon(doc, wallPolygon, [214, 187, 147], [108, 69, 38], 0.7);
   const tiePolygon = [
-    { x: wallX + 6, y: floorY - 4 },
-    { x: wallX + 14, y: floorY - 4 },
-    { x: wallX + 30, y: floorY + 10 },
-    { x: wallX + 22, y: floorY + 10 },
+    { x: wallX + 2, y: floorY - 9 },
+    { x: wallX + 13, y: floorY - 9 },
+    { x: wallX + 34, y: floorY + 10 },
+    { x: wallX + 23, y: floorY + 10 },
   ];
   drawPdfFilledPolygon(doc, tiePolygon, [120, 130, 138], [79, 101, 112], 0.5);
-  doc.setFillColor(79, 101, 112);
-  doc.circle(wallX + 10, floorY - 2, 1.2, 'F');
-  doc.circle(wallX + 20, floorY + 6, 1.2, 'F');
-  drawPdfAngleArc(doc, wallX - 2, floorY + 2, 18, 180, 270, '90 deg', 28);
+  doc.setDrawColor(220, 24, 45);
+  doc.setFillColor(220, 24, 45);
+  const screwHeads = [
+    { x: wallX + 8, y: floorY - 4 },
+    { x: wallX + 14, y: floorY },
+    { x: wallX + 23, y: floorY + 2 },
+    { x: wallX + 29, y: floorY + 7 },
+  ];
+  screwHeads.forEach((head) => {
+    doc.circle(head.x, head.y, 1.3, 'S');
+    doc.line(head.x - 0.9, head.y - 0.9, head.x + 0.9, head.y + 0.9);
+    doc.line(head.x - 0.9, head.y + 0.9, head.x + 0.9, head.y - 0.9);
+  });
+  drawPdfAngleArc(doc, wallX + 2, floorY - 1, 12, 180, 270, '90 deg', 18);
   doc.setFontSize(11);
-  doc.text('Hurricane / seismic tie', wallX + 34, floorY + 2);
+  doc.setTextColor(71, 54, 39);
+  doc.text('Hurricane / seismic tie', wallX + 56, floorY + (floorThicknessDraw * 0.5), { align: 'center' });
 
   doc.setDrawColor(79, 101, 112);
+  doc.setTextColor(31, 95, 117);
   doc.line(wallX + memberFaceDraw + 12, floorY - wallHeight, wallX + memberFaceDraw + 12, floorY);
   doc.line(wallX + memberFaceDraw + 9, floorY - wallHeight, wallX + memberFaceDraw + 15, floorY - wallHeight);
   doc.line(wallX + memberFaceDraw + 9, floorY, wallX + memberFaceDraw + 15, floorY);
@@ -1139,6 +1291,14 @@ function addPdfWallFloorDetail(doc: jsPDF, inputs: PlannerInputs, unitSystem: Un
   doc.line(wallX - 16, floorY + floorThicknessDraw + 11, wallX - 16, floorY + floorThicknessDraw + 17);
   doc.line(wallX - 16 + floorLength, floorY + floorThicknessDraw + 11, wallX - 16 + floorLength, floorY + floorThicknessDraw + 17);
   doc.text(`Base member span shown ${formatLength(inputs.groundWidth, unitSystem)}`, wallX - 16 + (floorLength / 2), floorY + floorThicknessDraw + 22, { align: 'center' });
+  doc.setTextColor(71, 54, 39);
+  doc.text(`Timber face ${formatLength(inputs.availableWoodDepth, unitSystem)}`, wallX + (memberFaceDraw / 2), floorY + floorThicknessDraw + 32, { align: 'center' });
+  doc.setDrawColor(220, 24, 45);
+  doc.setFillColor(220, 24, 45);
+  doc.circle(80, floorY + floorThicknessDraw + 41, 1.5, 'F');
+  doc.setTextColor(220, 24, 45);
+  doc.text(`Screws ${screwCountPerConnection} x ${formatValue(screwLengthMm, 0)} mm`, 105, floorY + floorThicknessDraw + 42, { align: 'center' });
+  doc.setTextColor(71, 54, 39);
 }
 
 function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: UnitSystem) {
@@ -1172,6 +1332,9 @@ function exportPdf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: U
     ['Rafter count', `${metrics.rafterCount} pcs`],
     ['Base ties / floor joists', `${metrics.floorJoistCount} pcs`],
     ['Estimated stock pieces', `${metrics.stockPieceCount} pcs`],
+    ['Apex screws total', `${metrics.apexScrewCount} pcs @ ${formatValue(metrics.apexScrewLengthMm, 0)} x ${formatValue(metrics.apexScrewDiameterMm, 0)} mm`],
+    ['Roof-wall screws total', `${metrics.roofWallScrewCount} pcs @ ${formatValue(metrics.roofWallScrewLengthMm, 0)} mm`],
+    ['Wall-floor screws total', `${metrics.wallFloorScrewCount} pcs @ ${formatValue(metrics.wallFloorScrewLengthMm, 0)} mm`],
     ['Recommended section (pine wood)', getSectionLabel(metrics.recommendedSection, unitSystem)],
     ['Available stock', `${formatValue(stockWidth, unitSystem === 'metric' ? 0 : 2)} x ${formatValue(stockDepth, unitSystem === 'metric' ? 0 : 2)} ${stockUnit}`],
     ['Stock length', stockLengthAdequateText(metrics.stockLengthAdequate)],
@@ -1999,6 +2162,13 @@ export default function App() {
   const recommendedCapacity = getSectionCapacity(recommendedSection.width, recommendedSection.depth);
   const availableSectionAdequate = availableCapacity >= recommendedCapacity;
   const stockLengthAdequate = inputs.availableWoodLength >= rafterLength;
+  const apexScrewLengthMm = Math.max(Math.round((((inputs.availableWoodDepth * 1000) * 2) - 5) / 5) * 5, 30);
+  const apexScrewDiameterMm = clamp(Math.round((inputs.availableWoodDepth * 1000) / 25), 5, 10);
+  const apexScrewCount = frameCount;
+  const roofWallScrewLengthMm = Math.max(Math.round((((inputs.availableWoodWidth * 1000) * 2) - 5) / 5) * 5, 25);
+  const roofWallScrewCount = rafterCount;
+  const wallFloorScrewLengthMm = Math.max(Math.round(((inputs.availableWoodWidth * 1000) - 5) / 5) * 5, 25);
+  const wallFloorScrewCount = rafterCount * 4;
 
   const rafterVolume = frameCount * 2 * rafterLength * availableSectionArea;
   const floorAxisGrid = buildGridAxis(inputs.groundLength, anchorSpacingMin, anchorSpacingMax);
@@ -2059,6 +2229,13 @@ export default function App() {
     wallCladdingArea,
     roofBoardingVolume,
     totalWoodVolume,
+    apexScrewLengthMm,
+    apexScrewDiameterMm,
+    apexScrewCount,
+    roofWallScrewLengthMm,
+    roofWallScrewCount,
+    wallFloorScrewLengthMm,
+    wallFloorScrewCount,
     woodCostEstimate,
     panelCostEstimate,
     glassCostEstimate,
@@ -2380,6 +2557,18 @@ export default function App() {
                 <strong>{floorJoistCount} pcs</strong>
               </div>
               <div>
+                <span>Apex screws total</span>
+                <strong>{apexScrewCount} pcs @ {formatValue(apexScrewLengthMm, 0)} x {formatValue(apexScrewDiameterMm, 0)} mm</strong>
+              </div>
+              <div>
+                <span>Roof-wall screws total</span>
+                <strong>{roofWallScrewCount} pcs @ {formatValue(roofWallScrewLengthMm, 0)} mm</strong>
+              </div>
+              <div>
+                <span>Wall-floor screws total</span>
+                <strong>{wallFloorScrewCount} pcs @ {formatValue(wallFloorScrewLengthMm, 0)} mm</strong>
+              </div>
+              <div>
                 <span>Foundation grid</span>
                 <strong>{formatLength(widthAxisGrid.spacing, unitSystem)} x {formatLength(floorAxisGrid.spacing, unitSystem)}</strong>
               </div>
@@ -2513,6 +2702,18 @@ export default function App() {
               <div>
                 <span>Estimated stock pieces</span>
                 <strong>{stockPieceCount} pcs</strong>
+              </div>
+              <div>
+                <span>Apex screws total</span>
+                <strong>{apexScrewCount} pcs @ {formatValue(apexScrewLengthMm, 0)} x {formatValue(apexScrewDiameterMm, 0)} mm</strong>
+              </div>
+              <div>
+                <span>Roof-wall screws total</span>
+                <strong>{roofWallScrewCount} pcs @ {formatValue(roofWallScrewLengthMm, 0)} mm</strong>
+              </div>
+              <div>
+                <span>Wall-floor screws total</span>
+                <strong>{wallFloorScrewCount} pcs @ {formatValue(wallFloorScrewLengthMm, 0)} mm</strong>
               </div>
               <div>
                 <span>Ground anchors</span>
