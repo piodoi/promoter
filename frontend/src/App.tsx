@@ -526,6 +526,12 @@ function buildDxf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: Un
   const unitCode = unitSystem === 'metric' ? '6' : '2';
   const lengthFactor = unitSystem === 'metric' ? 1 : 1 / METERS_PER_FOOT;
   const displayLength = (value: number) => value * lengthFactor;
+  const gap = displayLength(1.2);
+  const sectionGap = displayLength(1.8);
+  const textHeight = unitSystem === 'metric' ? 0.22 : 0.7;
+  const smallTextHeight = unitSystem === 'metric' ? 0.18 : 0.55;
+  const titleOffset = unitSystem === 'metric' ? 0.8 : 2.4;
+  const anchorRadius = unitSystem === 'metric' ? 0.08 : 0.25;
   const groundLength = displayLength(metrics.groundFloorLength);
   const groundWidth = displayLength(inputs.groundWidth);
   const groundHeadspaceWidth = displayLength(metrics.groundHeadspaceWidth);
@@ -535,13 +541,20 @@ function buildDxf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: Un
   const loftOuterLength = displayLength(metrics.loftDeckLength);
   const loftWidth = displayLength(metrics.loftHeadspaceWidth);
   const loftLength = displayLength(metrics.loftDeckLength);
-  const loftOriginX = groundWidth + (unitSystem === 'metric' ? 2 : 6) + ((Math.max(groundWidth, loftOuterWidth) - loftOuterWidth) / 2);
-  const loftInnerX = groundWidth + (unitSystem === 'metric' ? 2 : 6) + ((Math.max(groundWidth, loftOuterWidth) - loftWidth) / 2);
-  const anchorRadius = unitSystem === 'metric' ? 0.08 : 0.25;
-  const planOffset = groundWidth + (unitSystem === 'metric' ? 2 : 6);
-  const anchorOffsetY = Math.max(groundLength, 1) + (unitSystem === 'metric' ? 3 : 10);
-  const textHeight = unitSystem === 'metric' ? 0.22 : 0.7;
-  const detailOffsetY = anchorOffsetY + displayLength(inputs.groundLength) + (unitSystem === 'metric' ? 4 : 12);
+  const anchorWidth = displayLength(inputs.groundWidth);
+  const anchorLength = displayLength(inputs.groundLength);
+  const planBlockWidth = Math.max(groundWidth, loftOuterWidth, anchorWidth, displayLength(4));
+  const groundX = 0;
+  const loftX = groundX + planBlockWidth + gap;
+  const anchorX = loftX + planBlockWidth + gap;
+  const firstRowHeight = Math.max(groundLength, loftOuterLength, anchorLength, displayLength(3));
+  const viewsOffsetY = firstRowHeight + sectionGap + displayLength(0.6);
+  const viewBoxWidth = displayLength(5.4);
+  const viewBoxHeight = displayLength(4.8);
+  const viewGapX = displayLength(1.1);
+  const viewGapY = displayLength(1.2);
+  const framingOffsetY = viewsOffsetY + (viewBoxHeight * 2) + viewGapY + sectionGap;
+  const detailOffsetY = framingOffsetY + displayLength(9.6);
   const detail = buildDetailGeometry(metrics, inputs);
   const timberFace = displayLength(detail.timberFace);
   const apexSeamCenter = { x: 7.5, y: detailOffsetY + 2.4 };
@@ -582,17 +595,150 @@ function buildDxf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: Un
   const wallFloorFloorY = detailOffsetY + 8.6;
   const wallFloorWall = createDxfRect(wallFloorWallX, detailOffsetY + 1.4, timberFace, 7.2, 'DETAIL_WALL_FLOOR');
   const wallFloorBase = createDxfRect(29.4, wallFloorFloorY, 10.4, displayLength(inputs.availableWoodWidth), 'DETAIL_WALL_FLOOR');
-  const entities = [
-    ...createDxfText(0, -0.8, textHeight, 'GROUND FLOOR', 'TEXT'),
-    ...createDxfRect(0, 0, groundWidth, groundLength, 'GROUND_PLAN'),
-    ...(metrics.groundHeadspaceArea > 0 ? createDxfRect((groundWidth - groundHeadspaceWidth) / 2, groundHeadspaceOffsetY, groundHeadspaceWidth, groundHeadspaceLength, 'GROUND_HEADSPACE') : []),
-    ...createDxfDimensions(0, 0, inputs.groundWidth, metrics.groundFloorLength, unitSystem, 'TEXT'),
-    ...createDxfText(planOffset, -0.8, textHeight, 'LOFT PLAN', 'TEXT'),
-    ...(metrics.loftArea > 0 ? createDxfRect(loftOriginX, 0, loftOuterWidth, loftOuterLength, 'LOFT_PLAN') : []),
-    ...(metrics.loftHeadspaceArea > 0 ? createDxfRect(loftInnerX, 0, loftWidth, loftLength, 'LOFT_HEADSPACE') : []),
-    ...(metrics.loftArea > 0 ? createDxfDimensions(planOffset, 0, metrics.loftDeckWidth, metrics.loftDeckLength, unitSystem, 'TEXT') : []),
-    ...createDxfText(0, anchorOffsetY - 0.8, textHeight, 'ANCHOR LAYOUT', 'TEXT'),
-    ...createDxfRect(0, anchorOffsetY, groundWidth, displayLength(inputs.groundLength), 'ANCHORS'),
+  const entities: string[] = [];
+
+  const addTextBlock = (x: number, y: number, text: string, layer = 'TEXT', height = textHeight) => {
+    entities.push(...createDxfText(x, y, height, text, layer));
+  };
+  const addLineBlock = (x1: number, y1: number, x2: number, y2: number, layer: string) => {
+    entities.push(...createDxfLine(x1, y1, x2, y2, layer));
+  };
+  const addPolylineBlock = (points: { x: number; y: number }[], layer: string, closed = true) => {
+    entities.push(...createDxfPolyline(points, layer, closed));
+  };
+
+  addTextBlock(0, -titleOffset, `A-FRAME CABIN DRAWING SET (${unitSystem === 'metric' ? 'METRIC' : 'IMPERIAL'})`);
+
+  addTextBlock(groundX, -titleOffset, 'GROUND FLOOR PLAN');
+  entities.push(...createDxfRect(groundX, 0, groundWidth, groundLength, 'GROUND_PLAN'));
+  if (metrics.groundHeadspaceArea > 0) {
+    entities.push(...createDxfRect(groundX + ((groundWidth - groundHeadspaceWidth) / 2), groundHeadspaceOffsetY, groundHeadspaceWidth, groundHeadspaceLength, 'GROUND_HEADSPACE'));
+  }
+  entities.push(...createDxfDimensions(groundX, 0, inputs.groundWidth, metrics.groundFloorLength, unitSystem, 'TEXT'));
+
+  addTextBlock(loftX, -titleOffset, 'LOFT PLAN');
+  if (metrics.loftArea > 0) {
+    const loftOriginX = loftX + ((planBlockWidth - loftOuterWidth) / 2);
+    const loftInnerX = loftX + ((planBlockWidth - loftWidth) / 2);
+    entities.push(...createDxfRect(loftOriginX, 0, loftOuterWidth, loftOuterLength, 'LOFT_PLAN'));
+    if (metrics.loftHeadspaceArea > 0) {
+      entities.push(...createDxfRect(loftInnerX, 0, loftWidth, loftLength, 'LOFT_HEADSPACE'));
+    }
+    entities.push(...createDxfDimensions(loftX, 0, metrics.loftDeckWidth, metrics.loftDeckLength, unitSystem, 'TEXT'));
+  } else {
+    addTextBlock(loftX, displayLength(1), 'NO LOFT ENABLED', 'TEXT', smallTextHeight);
+  }
+
+  addTextBlock(anchorX, -titleOffset, 'ANCHOR LAYOUT');
+  entities.push(...createDxfRect(anchorX, 0, anchorWidth, anchorLength, 'ANCHORS'));
+  metrics.anchorPoints.forEach((anchorPoint) => {
+    entities.push(...createDxfCircle(anchorX + displayLength(anchorPoint.x), displayLength(anchorPoint.y), anchorRadius, 'ANCHORS'));
+  });
+  addTextBlock(anchorX, anchorLength + displayLength(0.55), `${metrics.anchorPoints.length} anchors total`, 'TEXT', smallTextHeight);
+  addTextBlock(anchorX, anchorLength + displayLength(0.95), `Grid ${formatLength(metrics.anchorSpacingX, unitSystem)} x ${formatLength(metrics.anchorSpacingY, unitSystem)}`, 'TEXT', smallTextHeight);
+
+  const ladderTopInset = Math.min(1.2, Math.max(metrics.loftDeckLength - 0.2, 0.4));
+  const ladderRun = metrics.loftArea > 0 ? Math.max(metrics.loftFloorHeight / Math.tan((LADDER_ANGLE_DEGREES * Math.PI) / 180), 0.2) : 0;
+  const dxfViews = [
+    { title: 'BACK ISOMETRIC', yaw: 2.35, pitch: 0.28, x: 0, y: viewsOffsetY },
+    { title: 'BACK RAISED 45 DEG', yaw: 3.14, pitch: 0.78, x: viewBoxWidth + viewGapX, y: viewsOffsetY },
+    { title: 'TOP VIEW', yaw: 0, pitch: 1.18, x: 0, y: viewsOffsetY + viewBoxHeight + viewGapY },
+    { title: 'BACK ISOMETRIC MIRRORED', yaw: -2.35, pitch: 0.28, x: viewBoxWidth + viewGapX, y: viewsOffsetY + viewBoxHeight + viewGapY },
+  ];
+
+  const drawProjectedView = (title: string, viewX: number, viewY: number, yaw: number, pitch: number) => {
+    const scene = buildProjectedCabinScene({
+      width: inputs.groundWidth,
+      totalHeight: metrics.totalHeight,
+      sideWallHeight: metrics.sideWallHeight,
+      cabinLength: inputs.groundLength,
+      glazingStage: metrics.glazingStage,
+      loftFloorHeight: metrics.loftFloorHeight,
+      loftDeckWidth: metrics.loftDeckWidth,
+      loftDeckLength: metrics.loftDeckLength,
+      balconyMargin: metrics.balconyMargin,
+      frontWallOffset: metrics.frontTerraceDepth,
+      backWallOffset: metrics.actualSpacing,
+      includeLoft: inputs.includeLoft,
+      includeBalcony: inputs.includeBalcony,
+      frameCount: metrics.frameCount,
+      actualSpacing: metrics.actualSpacing,
+      includeConcreteSlab: inputs.includeConcreteSlab,
+      ladderOffset: 0,
+      ladderTopInset,
+      ladderRun,
+      yaw,
+      pitch,
+      scale: 1,
+    });
+    const allPoints = scene.allProjectedPoints;
+    const minX = Math.min(...allPoints.map((point) => point.x));
+    const maxX = Math.max(...allPoints.map((point) => point.x));
+    const minY = Math.min(...allPoints.map((point) => point.y));
+    const maxY = Math.max(...allPoints.map((point) => point.y));
+    const margin = displayLength(0.3);
+    const scale = Math.min((viewBoxWidth - (margin * 2)) / Math.max(maxX - minX, 1), (viewBoxHeight - (margin * 2)) / Math.max(maxY - minY, 1));
+    const mapPoint = (point: ProjectedPoint) => ({
+      x: viewX + margin + ((point.x - minX) * scale),
+      y: viewY + margin + ((maxY - point.y) * scale),
+    });
+    entities.push(...createDxfRect(viewX, viewY, viewBoxWidth, viewBoxHeight, 'REFERENCE_VIEW_BOX'));
+    addTextBlock(viewX, viewY - titleOffset, title, 'TEXT', smallTextHeight);
+    scene.faces.forEach((face) => addPolylineBlock(face.projected.map(mapPoint), 'REFERENCE_VIEW_FACE'));
+    addPolylineBlock(scene.frontWoodFace.map(mapPoint), 'REFERENCE_VIEW_FACE');
+    if (scene.loftPolygon) {
+      addPolylineBlock(scene.loftPolygon.map(mapPoint), 'REFERENCE_VIEW_LOFT');
+    }
+    [scene.doorPolygon, scene.doorGlassPolygon, ...scene.frontGlazingPolygons, ...scene.backGlazingPolygons].forEach((polygon) => addPolylineBlock(polygon.map(mapPoint), 'REFERENCE_VIEW_GLAZING'));
+    [...scene.floorStructureLines, ...scene.rafterLines, ...scene.loftEdgeLines, ...scene.railingLines, ...scene.ladderLines].forEach((line) => {
+      addLineBlock(mapPoint(line[0]).x, mapPoint(line[0]).y, mapPoint(line[1]).x, mapPoint(line[1]).y, 'REFERENCE_VIEW_LINES');
+    });
+  };
+
+  dxfViews.forEach((view) => drawProjectedView(view.title, view.x, view.y, view.yaw, view.pitch));
+
+  const schematicScale = Math.min(displayLength(7.8) / Math.max(inputs.groundWidth, 0.1), displayLength(6.4) / Math.max(metrics.totalHeight, 0.1));
+  const schematicBaseY = framingOffsetY + displayLength(0.8);
+  const schematicLeftBase = { x: displayLength(1.8), y: schematicBaseY };
+  const schematicRightBase = { x: schematicLeftBase.x + (inputs.groundWidth * schematicScale), y: schematicBaseY };
+  const schematicApex = { x: (schematicLeftBase.x + schematicRightBase.x) / 2, y: schematicBaseY + (metrics.totalHeight * schematicScale) };
+  const schematicSideWallHeight = metrics.sideWallHeight * schematicScale;
+  const schematicLeftKnee = { x: schematicLeftBase.x + ((schematicSideWallHeight / Math.max(metrics.totalHeight * schematicScale, 0.1)) * (schematicApex.x - schematicLeftBase.x)), y: schematicBaseY + schematicSideWallHeight };
+  const schematicRightKnee = { x: schematicRightBase.x - ((schematicSideWallHeight / Math.max(metrics.totalHeight * schematicScale, 0.1)) * (schematicRightBase.x - schematicApex.x)), y: schematicBaseY + schematicSideWallHeight };
+  const loftY = schematicBaseY + (metrics.loftFloorHeight * schematicScale);
+  const loftLeftX = schematicApex.x - ((metrics.loftDeckWidth * schematicScale) / 2);
+  const loftRightX = schematicApex.x + ((metrics.loftDeckWidth * schematicScale) / 2);
+  const innerApexHeight = Math.max(metrics.totalHeight - ((Math.min(inputs.availableWoodDepth, Math.max(metrics.fullRafterLength, 0.001) * 0.25) * Math.max(metrics.fullRafterLength, 0.001)) / Math.max(inputs.groundWidth / 2, 0.001)), metrics.loftFloorHeight);
+  const innerApexY = schematicBaseY + (innerApexHeight * schematicScale);
+  addTextBlock(0, framingOffsetY - titleOffset, 'FRAMING SCHEMATIC');
+  addLineBlock(schematicLeftBase.x, schematicLeftBase.y, schematicApex.x, schematicApex.y, 'FRAMING_SCHEMATIC');
+  addLineBlock(schematicApex.x, schematicApex.y, schematicRightBase.x, schematicRightBase.y, 'FRAMING_SCHEMATIC');
+  addLineBlock(schematicLeftBase.x, schematicLeftBase.y, schematicRightBase.x, schematicRightBase.y, 'FRAMING_SCHEMATIC');
+  if (metrics.sideWallHeight > 0) {
+    addLineBlock(schematicLeftKnee.x, schematicLeftKnee.y, schematicLeftKnee.x, schematicBaseY, 'FRAMING_SCHEMATIC');
+    addLineBlock(schematicRightKnee.x, schematicRightKnee.y, schematicRightKnee.x, schematicBaseY, 'FRAMING_SCHEMATIC');
+  }
+  if (metrics.loftArea > 0) {
+    addLineBlock(loftLeftX, loftY, loftRightX, loftY, 'FRAMING_SCHEMATIC');
+  }
+  addLineBlock(schematicLeftBase.x - displayLength(0.5), schematicBaseY, schematicLeftBase.x - displayLength(0.5), schematicApex.y, 'FRAMING_DIM');
+  addTextBlock(schematicLeftBase.x - displayLength(1.2), ((schematicBaseY + schematicApex.y) / 2), formatLength(metrics.totalHeight, unitSystem), 'TEXT', smallTextHeight);
+  addLineBlock(schematicLeftBase.x, schematicBaseY - displayLength(0.6), schematicRightBase.x, schematicBaseY - displayLength(0.6), 'FRAMING_DIM');
+  addTextBlock(schematicApex.x - displayLength(0.8), schematicBaseY - displayLength(1), formatLength(inputs.groundWidth, unitSystem), 'TEXT', smallTextHeight);
+  if (metrics.loftArea > 0) {
+    addLineBlock(loftLeftX, loftY - displayLength(0.35), loftRightX, loftY - displayLength(0.35), 'FRAMING_DIM');
+    addTextBlock(schematicApex.x - displayLength(0.8), loftY - displayLength(0.7), formatLength(metrics.loftDeckWidth, unitSystem), 'TEXT', smallTextHeight);
+    addLineBlock(schematicApex.x + displayLength(0.45), loftY, schematicApex.x + displayLength(0.45), innerApexY, 'FRAMING_DIM');
+    addTextBlock(schematicApex.x + displayLength(0.7), ((loftY + innerApexY) / 2), formatLength(Math.max(innerApexHeight - metrics.loftFloorHeight, 0), unitSystem), 'TEXT', smallTextHeight);
+  }
+  addTextBlock(displayLength(10.4), framingOffsetY + displayLength(0.5), `Build ${metrics.frameCount} A-frames at ${formatLength(metrics.actualSpacing, unitSystem)} centers`, 'TEXT', smallTextHeight);
+  addTextBlock(displayLength(10.4), framingOffsetY + displayLength(1.1), `Per frame: 2 rafters at ${formatLength(metrics.fullRafterLength, unitSystem)}`, 'TEXT', smallTextHeight);
+  addTextBlock(displayLength(10.4), framingOffsetY + displayLength(1.7), `Per frame: 1 base tie at ${formatLength(inputs.groundWidth, unitSystem)}`, 'TEXT', smallTextHeight);
+  addTextBlock(displayLength(10.4), framingOffsetY + displayLength(2.3), metrics.sideWallHeight > 0 ? `Per frame: 2 side wall studs at ${formatLength(metrics.sideWallHeight, unitSystem)}` : 'True A-frame: no vertical side wall studs', 'TEXT', smallTextHeight);
+  addTextBlock(displayLength(10.4), framingOffsetY + displayLength(2.9), metrics.loftArea > 0 ? `Loft deck level set at ${formatLength(metrics.loftFloorHeight, unitSystem)}` : 'No loft deck included in this configuration', 'TEXT', smallTextHeight);
+  addTextBlock(displayLength(10.4), framingOffsetY + displayLength(3.5), `Stock ${unitSystem === 'metric' ? `${formatValue(inputs.availableWoodWidth * 1000, 0)} x ${formatValue(inputs.availableWoodDepth * 1000, 0)} mm` : `${formatValue((inputs.availableWoodWidth * 1000) / MM_PER_INCH, 2)} x ${formatValue((inputs.availableWoodDepth * 1000) / MM_PER_INCH, 2)} in`}`, 'TEXT', smallTextHeight);
+
+  entities.push(
     ...createDxfText(0, detailOffsetY - 0.8, textHeight, 'APEX DETAIL', 'TEXT'),
     ...createDxfPolyline(apexLeft, 'DETAIL_APEX'),
     ...createDxfPolyline(apexRight, 'DETAIL_APEX'),
@@ -625,13 +771,7 @@ function buildDxf(inputs: PlannerInputs, metrics: PlannerMetrics, unitSystem: Un
     ...createDxfArc(wallFloorWallX + 0.1, wallFloorFloorY - 0.05, Math.max(timberFace * 0.75, unitSystem === 'metric' ? 0.42 : 1.2), 180, 270, 'DETAIL_WALL_FLOOR'),
     ...createDxfText(wallFloorWallX + 1.55, wallFloorFloorY - 0.22, textHeight, '90 deg', 'DETAIL_WALL_FLOOR'),
     ...createDxfText(wallFloorWallX + 0.9, wallFloorFloorY + 1.9, textHeight, `4 x ${formatValue(Math.max(Math.round(((inputs.availableWoodWidth * 1000) - 5) / 5) * 5, 25), 0)} mm`, 'DETAIL_WALL_FLOOR'),
-  ];
-
-  metrics.anchorPoints.forEach((anchorPoint) => {
-    const x = displayLength(anchorPoint.x);
-    const y = displayLength(anchorPoint.y);
-    entities.push(...createDxfCircle(x, anchorOffsetY + y, anchorRadius, 'ANCHORS'));
-  });
+  );
 
   return [
     '0', 'SECTION',
@@ -2769,11 +2909,11 @@ export default function App() {
               </div>
             </div>
             <p className="panel-note export-note">
-              PDF exports the active summary, plan blocks, and anchor layout. DXF exports simple linework for the ground floor, loft footprint, and anchor positions.
+              PDF exports the full drawing set, and DXF now exports the matching plan, anchor, reference-view, framing, and joint-detail linework for CAD cleanup.
             </p>
             <div className="export-actions">
               <button type="button" className="primary-button" onClick={handleExportPdf}>Export PDF report</button>
-              <button type="button" className="secondary-button" onClick={handleExportDxf}>Export DXF plan</button>
+              <button type="button" className="secondary-button" onClick={handleExportDxf}>Export DXF drawing set</button>
             </div>
           </section>
         </div>
