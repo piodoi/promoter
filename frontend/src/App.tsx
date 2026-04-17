@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { jsPDF } from 'jspdf';
 
-import AdminPromoterPanel from './AdminPromoterPanel';
+// import AdminPromoterPanel from './AdminPromoterPanel'; // uncomment when needed
 
 type UnitSystem = 'metric' | 'imperial';
 
@@ -2209,7 +2209,7 @@ function AnchorPlan({ length, width, anchorPoints, anchorSpacingX, anchorSpacing
 
 export default function App() {
   const [unitSystem, setUnitSystem] = useState<UnitSystem>('metric');
-  const [showAdmin, setShowAdmin] = useState(false);
+  // const [showAdmin, setShowAdmin] = useState(false); // uncomment when needed
   const [showAdvancedCosts, setShowAdvancedCosts] = useState(false);
   const [commitSignal, setCommitSignal] = useState(0);
   const [dirtyFields, setDirtyFields] = useState<string[]>([]);
