@@ -3004,12 +3004,14 @@ export default function App() {
         </div>
       </section>
 
+      {/* Admin drawer – uncomment when needed
       <section className={showAdmin ? 'admin-drawer open' : 'admin-drawer'}>
         <button type="button" className="admin-toggle" onClick={() => setShowAdmin((current) => !current)}>
           {showAdmin ? 'Hide hidden admin tab' : 'Show hidden admin tab'}
         </button>
         {showAdmin ? <AdminPromoterPanel /> : null}
       </section>
+      */}
     </div>
   );
 }
